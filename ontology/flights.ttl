@@ -1,0 +1,144 @@
+@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+@prefix flt:   <http://example.org/flights#> .
+
+# ── Ontologie ───────────────────────────────────────────────────────
+flt: a owl:Ontology ;
+    rdfs:label "Ontologie des vols aériens US" ;
+    rdfs:comment "Décrit les concepts liés aux vols commerciaux intérieurs américains, leurs retards et causes." .
+
+# ── Classes ─────────────────────────────────────────────────────────
+flt:Flight a owl:Class ;
+    rdfs:label "Vol" ;
+    rdfs:comment "Un vol commercial intérieur aux États-Unis." .
+
+flt:Airline a owl:Class ;
+    rdfs:label "Compagnie aérienne" ;
+    rdfs:comment "Une compagnie aérienne opérant des vols commerciaux." .
+
+flt:Airport a owl:Class ;
+    rdfs:label "Aéroport" ;
+    rdfs:comment "Un aéroport américain." .
+
+flt:DelayType a owl:Class ;
+    rdfs:label "Type de retard" ;
+    rdfs:comment "Une catégorie de cause de retard." .
+
+flt:Route a owl:Class ;
+    rdfs:label "Route" ;
+    rdfs:comment "Une paire origine-destination." .
+
+# ── Propriétés d'objet ──────────────────────────────────────────────
+flt:operatedBy a owl:ObjectProperty ;
+    rdfs:label "opéré par" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range flt:Airline .
+
+flt:departsFrom a owl:ObjectProperty ;
+    rdfs:label "part de" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range flt:Airport .
+
+flt:arrivesAt a owl:ObjectProperty ;
+    rdfs:label "arrive à" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range flt:Airport .
+
+flt:hasDelayType a owl:ObjectProperty ;
+    rdfs:label "a pour type de retard" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range flt:DelayType .
+
+flt:hasOrigin a owl:ObjectProperty ;
+    rdfs:label "a pour origine" ;
+    rdfs:domain flt:Route ;
+    rdfs:range flt:Airport .
+
+flt:hasDestination a owl:ObjectProperty ;
+    rdfs:label "a pour destination" ;
+    rdfs:domain flt:Route ;
+    rdfs:range flt:Airport .
+
+# ── Propriétés de données ───────────────────────────────────────────
+flt:flightDate a owl:DatatypeProperty ;
+    rdfs:label "date du vol" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range xsd:date .
+
+flt:departureDelay a owl:DatatypeProperty ;
+    rdfs:label "retard au départ (minutes)" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range xsd:float .
+
+flt:arrivalDelay a owl:DatatypeProperty ;
+    rdfs:label "retard à l'arrivée (minutes)" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range xsd:float .
+
+flt:cancelled a owl:DatatypeProperty ;
+    rdfs:label "annulé" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range xsd:boolean .
+
+flt:distance a owl:DatatypeProperty ;
+    rdfs:label "distance (miles)" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range xsd:float .
+
+flt:airTime a owl:DatatypeProperty ;
+    rdfs:label "temps de vol (minutes)" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range xsd:float .
+
+flt:airportCode a owl:DatatypeProperty ;
+    rdfs:label "code IATA" ;
+    rdfs:domain flt:Airport ;
+    rdfs:range xsd:string .
+
+flt:cityName a owl:DatatypeProperty ;
+    rdfs:label "ville" ;
+    rdfs:domain flt:Airport ;
+    rdfs:range xsd:string .
+
+flt:stateName a owl:DatatypeProperty ;
+    rdfs:label "état" ;
+    rdfs:domain flt:Airport ;
+    rdfs:range xsd:string .
+
+flt:carrierCode a owl:DatatypeProperty ;
+    rdfs:label "code compagnie" ;
+    rdfs:domain flt:Airline ;
+    rdfs:range xsd:string .
+
+flt:carrierName a owl:DatatypeProperty ;
+    rdfs:label "nom compagnie" ;
+    rdfs:domain flt:Airline ;
+    rdfs:range xsd:string .
+
+flt:delayMinutes a owl:DatatypeProperty ;
+    rdfs:label "minutes de retard" ;
+    rdfs:domain flt:Flight ;
+    rdfs:range xsd:float .
+
+# ── Instances de types de retard ────────────────────────────────────
+flt:CarrierDelay a flt:DelayType ;
+    rdfs:label "Retard compagnie" ;
+    rdfs:comment "Retard causé par la compagnie aérienne (maintenance, équipage, etc.)." .
+
+flt:WeatherDelay a flt:DelayType ;
+    rdfs:label "Retard météo" ;
+    rdfs:comment "Retard causé par les conditions météorologiques." .
+
+flt:NASDelay a flt:DelayType ;
+    rdfs:label "Retard contrôle aérien" ;
+    rdfs:comment "Retard causé par le National Aviation System (contrôle aérien, congestion)." .
+
+flt:SecurityDelay a flt:DelayType ;
+    rdfs:label "Retard sécurité" ;
+    rdfs:comment "Retard causé par un incident de sécurité." .
+
+flt:LateAircraftDelay a flt:DelayType ;
+    rdfs:label "Avion en retard" ;
+    rdfs:comment "Retard causé par l'arrivée tardive de l'avion précédent." .

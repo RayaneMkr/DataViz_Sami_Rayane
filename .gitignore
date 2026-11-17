@@ -1,0 +1,34 @@
+# Data files (not versioned per project rules)
+data/*.csv
+data/*.zip
+data/*.csv.gz
+data/*.parquet
+data/bronze/
+data/silver/
+data/gold/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+docker/pgdata/
+docker/minio-data/
+
+# Environment
+.env

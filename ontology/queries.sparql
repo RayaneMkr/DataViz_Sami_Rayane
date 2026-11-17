@@ -1,0 +1,67 @@
+# ============================================================
+# Requêtes SPARQL — Ontologie des vols aériens US
+# ============================================================
+
+PREFIX flt: <http://example.org/flights#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+# ────────────────────────────────────────────────────────────
+# REQUÊTE 1 : Quels aéroports ont le plus de vols en retard ?
+# Utile au persona : identifier les hubs problématiques.
+# ────────────────────────────────────────────────────────────
+
+SELECT ?airportCode ?cityName (COUNT(?flight) AS ?nbRetards) (AVG(?delay) AS ?retardMoyen)
+WHERE {
+    ?flight a flt:Flight ;
+            flt:departsFrom ?airport ;
+            flt:departureDelay ?delay .
+    ?airport flt:airportCode ?airportCode ;
+             flt:cityName ?cityName .
+    FILTER (?delay > 15)
+}
+GROUP BY ?airportCode ?cityName
+ORDER BY DESC(?nbRetards)
+LIMIT 10
+
+# ────────────────────────────────────────────────────────────
+# REQUÊTE 2 : Quelle est la répartition des causes de retard
+#             par compagnie ?
+# Utile au persona : comprendre si le retard est contrôlable.
+# ────────────────────────────────────────────────────────────
+
+SELECT ?carrierName ?delayTypeName (SUM(?delayMin) AS ?totalMinutes)
+WHERE {
+    ?flight a flt:Flight ;
+            flt:operatedBy ?airline ;
+            flt:hasDelayType ?delayType ;
+            flt:delayMinutes ?delayMin .
+    ?airline flt:carrierName ?carrierName .
+    ?delayType rdfs:label ?delayTypeName .
+}
+GROUP BY ?carrierName ?delayTypeName
+ORDER BY ?carrierName DESC(?totalMinutes)
+
+# ────────────────────────────────────────────────────────────
+# REQUÊTE 3 : Quelles routes ont le pire taux de ponctualité
+#             parmi celles avec plus de 1000 vols ?
+# Utile au persona : prioriser les routes à optimiser.
+# ────────────────────────────────────────────────────────────
+
+SELECT ?originCode ?destCode
+       (COUNT(?flight) AS ?totalVols)
+       (SUM(IF(?delay > 15, 1, 0)) AS ?volsEnRetard)
+       (100 * SUM(IF(?delay > 15, 1, 0)) / COUNT(?flight) AS ?pctRetard)
+WHERE {
+    ?flight a flt:Flight ;
+            flt:departsFrom ?origin ;
+            flt:arrivesAt ?dest ;
+            flt:arrivalDelay ?delay .
+    ?origin flt:airportCode ?originCode .
+    ?dest flt:airportCode ?destCode .
+}
+GROUP BY ?originCode ?destCode
+HAVING (COUNT(?flight) > 1000)
+ORDER BY DESC(?pctRetard)
+LIMIT 10
