@@ -1,34 +1,23 @@
-# Data files (not versioned per project rules)
-data/*.csv
-data/*.zip
-data/*.csv.gz
-data/*.parquet
-data/bronze/
-data/silver/
-data/gold/
+# Données (jamais versionnées : on les récupère avec scripts/telecharger_donnees.sh)
+data/
+
+# Fichiers créés par macOS sur le disque externe (exFAT)
+._*
+.DS_Store
 
 # Python
 __pycache__/
 *.pyc
-*.pyo
 .venv/
 venv/
-*.egg-info/
 
 # Jupyter
 .ipynb_checkpoints/
+.ivy2/
 
 # IDE
 .vscode/
 .idea/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Docker volumes
-docker/pgdata/
-docker/minio-data/
-
-# Environment
+# Identifiants locaux
 .env

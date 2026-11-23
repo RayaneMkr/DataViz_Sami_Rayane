@@ -1,0 +1,122 @@
+# ============================================================================
+#  Projet DataViz — retards des vols intérieurs US (BTS On-Time Performance 2024)
+#  Stack reprise du dépôt du cours (cours_dataviz/compose.yaml)
+# ============================================================================
+#  Tout lancer (notebooks, lac, base, dashboard) : docker compose up -d --build
+#  + serveur SPARQL Fuseki                       : docker compose --profile semantique up -d
+#  Arrêter                                       : docker compose --profile "*" down
+#  Identifiants                                  : fichier .env (copier .env.example en .env)
+# ============================================================================
+name: projet-dataviz
+
+services:
+
+  # --- Notebooks + Spark ----------------------------------------------------
+  jupyter:
+    image: quay.io/jupyter/pyspark-notebook:latest
+    ports:
+      - "8888:8888"   # JupyterLab -> http://localhost:8888/lab?token=cours
+      - "4040:4040"   # Spark UI   -> http://localhost:4040 (session Spark active)
+    volumes:
+      - .:/home/jovyan/work            # tout le dépôt est visible dans Jupyter
+      - ivy-cache:/home/jovyan/.ivy2   # jars Spark (Delta, S3, JDBC) téléchargés une seule fois
+    command: start-notebook.py --IdentityProvider.token=${JUPYTER_TOKEN:-cours}
+    environment:
+      S3_ENDPOINT: http://rustfs:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-rustfsadmin}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-rustfsadmin}
+      PG_URL: jdbc:postgresql://postgres:5432/${PG_DB:-vols}
+      PG_HOST: postgres
+      PG_DB: ${PG_DB:-vols}
+      PG_USER: ${PG_USER:-cours}
+      PG_PASSWORD: ${PG_PASSWORD:-cours}
+    depends_on:
+      - postgres
+      - rustfs
+
+  # --- Data lake S3 (bronze / silver / gold en Delta) -----------------------
+  rustfs-init:            # donne les droits du volume à l'utilisateur RustFS, puis s'arrête
+    image: alpine:3.20
+    command: sh -c "chown -R 10001:10001 /data && echo volume pret"
+    volumes:
+      - lake-data:/data
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    ports:
+      - "9000:9000"   # API S3
+      - "9001:9001"   # Console web -> http://localhost:9001
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-rustfsadmin}
+      RUSTFS_UNSAFE_BYPASS_DISK_CHECK: "true"   # un seul disque : usage local uniquement
+    volumes:
+      - lake-data:/data
+    depends_on:
+      rustfs-init:
+        condition: service_completed_successfully
+
+  # --- Base de restitution (tables gold_*) ----------------------------------
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${PG_USER:-cours}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-cours}
+      POSTGRES_DB: ${PG_DB:-vols}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-cours} -d ${PG_DB:-vols}"]
+      interval: 5s
+      retries: 10
+
+  # --- Console web PostgreSQL : voir les tables, lancer du SQL --------------
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8080:8080"   # -> http://localhost:8080  (Système PostgreSQL, serveur postgres, cours / cours, base vols)
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+
+  # --- Dashboard Streamlit --------------------------------------------------
+  streamlit:
+    build: ./app
+    ports:
+      - "8501:8501"   # -> http://localhost:8501
+    environment:
+      PG_HOST: postgres
+      PG_DB: ${PG_DB:-vols}
+      PG_USER: ${PG_USER:-cours}
+      PG_PASSWORD: ${PG_PASSWORD:-cours}
+    volumes:
+      - ./app:/app    # le code modifié est pris en compte au rechargement
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # --- Serveur SPARQL (profil « semantique ») -------------------------------
+  fuseki:
+    profiles: ["semantique"]
+    image: secoresearch/fuseki:latest
+    ports:
+      - "3030:3030"   # -> http://localhost:3030  (admin / mot de passe du .env)
+    environment:
+      ADMIN_PASSWORD: ${FUSEKI_ADMIN_PASSWORD:-admin}
+      ENABLE_DATA_WRITE: "true"
+      ENABLE_UPDATE: "true"
+    volumes:
+      - fuseki-data:/fuseki-base/databases
+
+volumes:
+  ivy-cache:
+  lake-data:
+  pg-data:
+  fuseki-data:
