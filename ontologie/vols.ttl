@@ -1,144 +1,60 @@
-@prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix owl:   <http://www.w3.org/2002/07/owl#> .
-@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
-@prefix flt:   <http://example.org/flights#> .
+# =============================================================================
+#  Ontologie des vols intérieurs US et de leurs retards (BTS On-Time 2024)
+#  Projet DataViz — Sup de Vinci M1 Big Data & IA — Sami & Rayane
+# =============================================================================
+#  Ce fichier ne contient que le schéma (T-Box) : classes, propriétés, causes.
+#  Les instances (aéroports, compagnies, routes, vols) sont générées par
+#  notebooks/04_semantique.ipynb dans ontologie/graphe_vols.ttl.
+#
+#  Espaces de noms
+#    vols:  le vocabulaire (classes et propriétés)  http://example.org/vols/ontologie#
+#    les instances ont chacune leur espace, défini dans graphe_vols.ttl :
+#    aer: (aéroports), cie: (compagnies), route:, vol:, etat:, imp: (imputations)
+# =============================================================================
 
-# ── Ontologie ───────────────────────────────────────────────────────
-flt: a owl:Ontology ;
-    rdfs:label "Ontologie des vols aériens US" ;
-    rdfs:comment "Décrit les concepts liés aux vols commerciaux intérieurs américains, leurs retards et causes." .
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:     <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix vols:    <http://example.org/vols/ontologie#> .
 
-# ── Classes ─────────────────────────────────────────────────────────
-flt:Flight a owl:Class ;
-    rdfs:label "Vol" ;
-    rdfs:comment "Un vol commercial intérieur aux États-Unis." .
+# -----------------------------------------------------------------------------
+#  L'ontologie
+# -----------------------------------------------------------------------------
+<http://example.org/vols/ontologie> a owl:Ontology ;
+    rdfs:label "Ontologie des vols intérieurs US et de leurs retards"@fr ;
+    dcterms:description """Décrit les vols commerciaux intérieurs aux États-Unis (BTS On-Time Performance 2024),
+les aéroports, compagnies, routes et États qu'ils relient, et les causes de leurs retards,
+classées selon que la compagnie peut agir dessus ou non."""@fr ;
+    dcterms:creator "Sami et Rayane" ;
+    dcterms:source <https://www.transtats.bts.gov/Tables.asp?QO_VQ=EFD> ;
+    owl:versionInfo "2.0" .
 
-flt:Airline a owl:Class ;
-    rdfs:label "Compagnie aérienne" ;
-    rdfs:comment "Une compagnie aérienne opérant des vols commerciaux." .
+# -----------------------------------------------------------------------------
+#  Classes du domaine
+# -----------------------------------------------------------------------------
+vols:Vol a owl:Class ;
+    rdfs:label "Vol"@fr , "Flight"@en ;
+    rdfs:comment "Un vol commercial intérieur programmé un jour donné par une compagnie, d'un aéroport d'origine vers un aéroport de destination. Il peut avoir été annulé ou détourné."@fr .
 
-flt:Airport a owl:Class ;
-    rdfs:label "Aéroport" ;
-    rdfs:comment "Un aéroport américain." .
+vols:Aeroport a owl:Class ;
+    rdfs:label "Aéroport"@fr , "Airport"@en ;
+    rdfs:comment "Un aéroport desservi par au moins un vol intérieur en 2024, identifié par son code IATA."@fr .
 
-flt:DelayType a owl:Class ;
-    rdfs:label "Type de retard" ;
-    rdfs:comment "Une catégorie de cause de retard." .
+vols:Hub a owl:Class ;
+    rdfs:subClassOf vols:Aeroport ;
+    rdfs:label "Hub"@fr , "Hub airport"@en ;
+    rdfs:comment "Un aéroport qui assure au moins 1 % des départs nationaux. C'est le seuil des « large hubs » de la FAA (14 CFR § 398.2), défini sur les passagers et appliqué ici aux vols, faute de données passagers. Tout hub est un aéroport."@fr .
 
-flt:Route a owl:Class ;
-    rdfs:label "Route" ;
-    rdfs:comment "Une paire origine-destination." .
+vols:Compagnie a owl:Class ;
+    rdfs:label "Compagnie aérienne"@fr , "Airline"@en ;
+    rdfs:comment "Une compagnie qui opère des vols (code BTS de la compagnie opérante, ex. DL, WN, 9E)."@fr .
 
-# ── Propriétés d'objet ──────────────────────────────────────────────
-flt:operatedBy a owl:ObjectProperty ;
-    rdfs:label "opéré par" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range flt:Airline .
+vols:Route a owl:Class ;
+    rdfs:label "Route"@fr , "Route"@en ;
+    rdfs:comment "Une liaison orientée d'un aéroport d'origine vers un aéroport de destination (LAX → SFO et SFO → LAX sont deux routes)."@fr .
 
-flt:departsFrom a owl:ObjectProperty ;
-    rdfs:label "part de" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range flt:Airport .
-
-flt:arrivesAt a owl:ObjectProperty ;
-    rdfs:label "arrive à" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range flt:Airport .
-
-flt:hasDelayType a owl:ObjectProperty ;
-    rdfs:label "a pour type de retard" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range flt:DelayType .
-
-flt:hasOrigin a owl:ObjectProperty ;
-    rdfs:label "a pour origine" ;
-    rdfs:domain flt:Route ;
-    rdfs:range flt:Airport .
-
-flt:hasDestination a owl:ObjectProperty ;
-    rdfs:label "a pour destination" ;
-    rdfs:domain flt:Route ;
-    rdfs:range flt:Airport .
-
-# ── Propriétés de données ───────────────────────────────────────────
-flt:flightDate a owl:DatatypeProperty ;
-    rdfs:label "date du vol" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range xsd:date .
-
-flt:departureDelay a owl:DatatypeProperty ;
-    rdfs:label "retard au départ (minutes)" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range xsd:float .
-
-flt:arrivalDelay a owl:DatatypeProperty ;
-    rdfs:label "retard à l'arrivée (minutes)" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range xsd:float .
-
-flt:cancelled a owl:DatatypeProperty ;
-    rdfs:label "annulé" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range xsd:boolean .
-
-flt:distance a owl:DatatypeProperty ;
-    rdfs:label "distance (miles)" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range xsd:float .
-
-flt:airTime a owl:DatatypeProperty ;
-    rdfs:label "temps de vol (minutes)" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range xsd:float .
-
-flt:airportCode a owl:DatatypeProperty ;
-    rdfs:label "code IATA" ;
-    rdfs:domain flt:Airport ;
-    rdfs:range xsd:string .
-
-flt:cityName a owl:DatatypeProperty ;
-    rdfs:label "ville" ;
-    rdfs:domain flt:Airport ;
-    rdfs:range xsd:string .
-
-flt:stateName a owl:DatatypeProperty ;
-    rdfs:label "état" ;
-    rdfs:domain flt:Airport ;
-    rdfs:range xsd:string .
-
-flt:carrierCode a owl:DatatypeProperty ;
-    rdfs:label "code compagnie" ;
-    rdfs:domain flt:Airline ;
-    rdfs:range xsd:string .
-
-flt:carrierName a owl:DatatypeProperty ;
-    rdfs:label "nom compagnie" ;
-    rdfs:domain flt:Airline ;
-    rdfs:range xsd:string .
-
-flt:delayMinutes a owl:DatatypeProperty ;
-    rdfs:label "minutes de retard" ;
-    rdfs:domain flt:Flight ;
-    rdfs:range xsd:float .
-
-# ── Instances de types de retard ────────────────────────────────────
-flt:CarrierDelay a flt:DelayType ;
-    rdfs:label "Retard compagnie" ;
-    rdfs:comment "Retard causé par la compagnie aérienne (maintenance, équipage, etc.)." .
-
-flt:WeatherDelay a flt:DelayType ;
-    rdfs:label "Retard météo" ;
-    rdfs:comment "Retard causé par les conditions météorologiques." .
-
-flt:NASDelay a flt:DelayType ;
-    rdfs:label "Retard contrôle aérien" ;
-    rdfs:comment "Retard causé par le National Aviation System (contrôle aérien, congestion)." .
-
-flt:SecurityDelay a flt:DelayType ;
-    rdfs:label "Retard sécurité" ;
-    rdfs:comment "Retard causé par un incident de sécurité." .
-
-flt:LateAircraftDelay a flt:DelayType ;
-    rdfs:label "Avion en retard" ;
-    rdfs:comment "Retard causé par l'arrivée tardive de l'avion précédent." .
+vols:Etat a owl:Class ;
+    rdfs:label "État"@fr , "State"@en ;
+    rdfs:comment "Un État ou territoire des États-Unis où se trouve un aéroport (code postal à deux lettres, ex. CA, TX, PR)."@fr .
