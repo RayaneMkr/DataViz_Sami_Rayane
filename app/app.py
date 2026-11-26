@@ -10,6 +10,7 @@ dashboard affiche des données FICTIVES au format du contrat, avec un bandeau d'
 Forcer les données fictives : variable d'environnement DONNEES_FICTIVES=1.
 """
 import os
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
@@ -296,8 +297,9 @@ styler(fig, conclusion, "Part des vols opérés arrivés avec moins de 15 min de
        + (" ; en gris, l'ensemble des compagnies" if selection else ""), hauteur=380)
 fig.update_yaxes(range=[bas, max(bas + 30, 5 * np.ceil(toutes.max() / 5) + 5)], ticksuffix=" %",
                  title_text="Vols à l'heure (%)", showgrid=True, gridcolor=GRILLE)
-fig.update_xaxes(tickvals=mensuel_sel.index, ticktext=[MOIS_ABR[d.month - 1] for d in mensuel_sel.index],
-                 title_text=None, range=[mensuel_sel.index[0] - pd.Timedelta(days=12), mensuel_sel.index[-1] + pd.Timedelta(days=12)])
+fig.update_xaxes(tickvals=[d.strftime("%Y-%m-%d") for d in mensuel_sel.index], ticktext=[MOIS_ABR[d.month - 1] for d in mensuel_sel.index],
+                 title_text=None, range=[(mensuel_sel.index[0] - timedelta(days=12)).strftime("%Y-%m-%d"),
+                        (mensuel_sel.index[-1] + timedelta(days=12)).strftime("%Y-%m-%d")])
 fig.update_layout(margin=dict(r=110))
 afficher(fig)
 portee(compagnie=True, periode=True, aeroport=False)
