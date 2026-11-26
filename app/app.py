@@ -409,6 +409,60 @@ afficher(fig)
 portee(compagnie=False, periode=False, aeroport=False)
 
 
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════
+# 3. RECOMMANDATION
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════
+st.header("3 · Recommandation : par quoi commencer ?")
+
+candidates = routes if not code_aeroport else routes[(routes.origine == code_aeroport)
+                                                       | (routes.destination == code_aeroport)]
+top = candidates.nlargest(10, "score_priorite").copy()
+if top.empty:
+    st.info(f"Aucune route de la table gold ne dessert {code_aeroport}.")
+else:
+    top["nom"] = top.origine + " → " + top.destination
+    fig = barres_horizontales(
+        etiquettes=top.nom, valeurs=top.score_priorite, couleurs=ACCENT,
+        textes=[f"{milliers(s)}  ·  {pct(p)} à l'heure" for s, p in zip(top.score_priorite, top.pct_a_l_heure)],
+        survol=[f"<b>{n}</b><br>{milliers(v)} vols, {pct(p)} à l'heure<br>retard moyen {r} min<br>"
+                f"score de priorité {milliers(s)}"
+                for n, v, p, r, s in zip(top.nom, top.vols, top.pct_a_l_heure, top.retard_moyen_min, top.score_priorite)],
+        titre_axe="Score de priorité ≈ vols en retard sur l'année", x_max=top.score_priorite.max() * 1.45)
+    fig.update_xaxes(tickformat=",d")
+    premiere = top.iloc[0]
+    styler(fig, f"{len(top)} routes cumulent {milliers(top.score_priorite.sum())} vols en retard par an"
+           + (f" au départ ou à l'arrivée de {code_aeroport}" if code_aeroport else "")
+           + f" ; {premiere.nom} en tête",
+           "Score de priorité = vols × (1 − part à l'heure) : combine le volume et le taux de retard.", hauteur=430)
+
+    gauche, droite = st.columns([1.6, 1])
+    with gauche:
+        afficher(fig)
+        portee(compagnie=False, periode=False, aeroport=True)
+    with droite:
+        trois = top.head(3)
+        part_avion = (100 * causes_sel.loc[causes_sel.cause == "avion_retard", "minutes"].sum()
+                      / causes_sel.minutes.sum()) if causes_sel.minutes.sum() else float("nan")
+        st.subheader("Action proposée")
+        st.success(
+            f"**Commencer par {', '.join(trois.nom[:-1])} et {trois.nom.iloc[-1]}** : ces trois routes totalisent "
+            f"environ **{milliers(trois.score_priorite.sum())} vols en retard par an**.\n\n"
+            f"Le levier est surtout interne : **{pct(part_ctrl)} des minutes de retard** ont une cause contrôlable, "
+            f"dont **{pct(part_avion)}** viennent d'un avion arrivé en retard de son vol précédent. "
+            f"Sur ces routes, **allonger les temps de rotation et placer un avion de réserve sur les départs "
+            f"de fin de journée**, le créneau le plus exposé ({HEURE_CRITIQUE} h).\n\n"
+            "**Mesurer l'effet** chaque semaine avec la ponctualité et le retard moyen de ces trois routes.",
+            icon="✅")
+        st.caption("Les routes viennent de `gold_routes` (toutes compagnies, 2024) ; les parts de causes suivent "
+                   "les filtres compagnie et période.")
+
+    with st.expander("Voir le tableau des routes prioritaires"):
+        st.dataframe(
+            top[["nom", "vols", "pct_a_l_heure", "retard_moyen_min", "score_priorite"]].rename(columns={
+                "nom": "Route", "vols": "Vols 2024", "pct_a_l_heure": "À l'heure (%)",
+                "retard_moyen_min": "Retard moyen (min)", "score_priorite": "Score de priorité"}),
+            hide_index=True, width="stretch")
+
 # ── Pied de page ──────────────────────────────────────────────────────────────────────────────────────────
 st.divider()
 st.caption(
