@@ -303,6 +303,112 @@ afficher(fig)
 portee(compagnie=True, periode=True, aeroport=False)
 
 
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════
+# 2. CONSTAT
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════
+st.header("2 · Constat : pourquoi, où et quand ?")
+
+# 2a. Causes : barres horizontales triées, bleu = contrôlable
+par_cause = (causes_sel.groupby(["cause", "controlable"], as_index=False)["minutes"].sum()
+             .assign(part=lambda d: 100 * d.minutes / d.minutes.sum(),
+                     controlable=lambda d: d.controlable.astype(bool))
+             .sort_values(["controlable", "part"], ascending=[False, False]))
+part_ctrl = par_cause.loc[par_cause.controlable, "part"].sum()
+fig = barres_horizontales(
+    etiquettes=[LIBELLES_CAUSES.get(c, c) for c in par_cause.cause], valeurs=par_cause.part,
+    couleurs=[ACCENT if c else GRIS for c in par_cause.controlable], textes=[pct(v) for v in par_cause.part],
+    survol=[f"<b>{LIBELLES_CAUSES.get(c, c)}</b><br>{pct(p)} des minutes de retard<br>"
+            f"{milliers(m / 60)} heures<br>{'Contrôlable' if ctrl else 'Non contrôlable'} par la compagnie"
+            for c, p, m, ctrl in zip(par_cause.cause, par_cause.part, par_cause.minutes, par_cause.controlable)],
+    titre_axe="Part des minutes de retard (%)", x_max=par_cause.part.max() * 1.75)
+fig.update_xaxes(ticksuffix=" %", tick0=0, dtick=10, range=[0, par_cause.part.max() * 1.75])
+# Étiquette directe des deux groupes, à la place d'une légende
+for ctrl, nom in [(True, "Contrôlables"), (False, "Non contrôlables")]:
+    groupe = par_cause[par_cause.controlable == ctrl]
+    if len(groupe):
+        milieu = LIBELLES_CAUSES.get(groupe.cause.iloc[len(groupe) // 2], groupe.cause.iloc[len(groupe) // 2])
+        fig.add_annotation(x=par_cause.part.max() * 1.3, y=milieu, showarrow=False, xanchor="left",
+                           text=(f"<b>{nom}</b>" if ctrl else nom) + f"<br>{pct(groupe.part.sum())}",
+                           font=dict(color=ENCRE if ctrl else ENCRE_2, size=13), align="left")
+
+gauche, droite = st.columns([1, 1])
+with gauche:
+    styler(fig, f"{pct(part_ctrl)} des minutes de retard ont une cause que {sujet} {verbe}",
+           "Minutes de retard par cause. En bleu : causes contrôlables par la compagnie.", hauteur=400)
+    afficher(fig)
+    portee(compagnie=True, periode=True, aeroport=False)
+
+# 2b. Carte des aéroports : taille = départs, bleu = sous la moyenne nationale
+with droite:
+    carte = aeroports.assign(pct=lambda d: 100 * d.vols_a_l_heure / d.vols_operes)
+    national = ponctualite_de(carte)
+    carte["sous"] = carte.pct < national
+    carte["taille"] = 5 + 32 * np.sqrt(carte.departs / carte.departs.max())
+    top30 = carte.nlargest(30, "departs")
+    noirs = top30[top30.sous].sort_values("pct")
+
+    fig = go.Figure()
+    for sous, couleur in [(False, GRIS), (True, ACCENT)]:
+        d = carte[carte.sous == sous]
+        fig.add_trace(go.Scattergeo(
+            lat=d.lat, lon=d.lon, mode="markers",
+            marker=dict(size=d.taille, color=couleur, opacity=0.85, line=dict(color="white", width=1)),
+            customdata=d[["code_iata", "ville", "pct", "departs", "retard_moyen_min"]].to_numpy(dtype=object),
+            hovertemplate="<b>%{customdata[0]} · %{customdata[1]}</b><br>%{customdata[2]:.1f} % à l'heure"
+                          "<br>%{customdata[3]:,} départs<br>retard moyen %{customdata[4]} min<extra></extra>"))
+    etiquettes = noirs.head(6)
+    fig.add_trace(go.Scattergeo(lat=etiquettes.lat, lon=etiquettes.lon, mode="text", text=etiquettes.code_iata,
+                                textposition="top center", textfont=dict(color=ENCRE, size=11), hoverinfo="skip"))
+    if code_aeroport:
+        a = carte[carte.code_iata == code_aeroport]
+        fig.add_trace(go.Scattergeo(
+            lat=a.lat, lon=a.lon, mode="markers+text", text=[f"<b>{code_aeroport}</b> {pct(a.pct.iloc[0])}"],
+            textposition="bottom center", textfont=dict(color=ENCRE, size=12), hoverinfo="skip",
+            marker=dict(size=a.taille + 8, color="rgba(0,0,0,0)", line=dict(color=ENCRE, width=2))))
+    fig.update_geos(scope="usa", projection_type="albers usa", showland=True, landcolor="#f4f4f4",
+                    showsubunits=True, subunitcolor="white", showlakes=False, bgcolor="white")
+    styler(fig, f"{len(noirs)} des 30 plus gros aéroports sont sous la moyenne nationale"
+           + (f" : {', '.join(noirs.code_iata[:3])} en tête" if len(noirs) else ""),
+           f"Taille = départs 2024. En bleu : ponctualité sous la moyenne nationale ({pct(national)}).", hauteur=400)
+    fig.update_layout(margin=dict(l=0, r=0, t=86, b=0))
+    afficher(fig)
+    portee(compagnie=False, periode=False, aeroport=True)
+    hors_carte = carte[~carte.etat.isin(["PR", "VI", "TT", "GU", "AS", "MP"])].shape[0]
+    if hors_carte < len(carte):
+        st.caption(f"{len(carte) - hors_carte} aéroports des territoires (Porto Rico, îles Vierges, Pacifique) sont "
+                   "hors du cadre de la carte ; ils restent dans les autres graphiques.")
+
+# 2c. Heatmap jour × heure
+taux = heure_jour.pivot(index="jour_semaine", columns="heure", values="pct_retard")
+volume = heure_jour.pivot(index="jour_semaine", columns="heure", values="vols")
+taux_fiable = taux.where(volume >= 0.0005 * heure_jour.vols.sum())
+matin = heure_jour[heure_jour.heure.between(6, 9)]
+soir = heure_jour[heure_jour.heure.between(17, 21)]
+moyenne = lambda d: (d.pct_retard * d.vols).sum() / d.vols.sum()
+par_heure = heure_jour[heure_jour.vols >= 0.0005 * heure_jour.vols.sum()].groupby("heure").apply(
+    moyenne, include_groups=False)
+HEURE_CRITIQUE = int(par_heure.idxmax())
+
+fig = go.Figure(go.Heatmap(
+    z=taux_fiable.values, x=[f"{h} h" for h in taux.columns], y=[JOURS[j - 1] for j in taux.index],
+    colorscale=SEQUENTIEL, zmin=0, zmax=5 * np.ceil(np.nanmax(taux_fiable.values) / 5), xgap=2, ygap=2,
+    customdata=volume.values,
+    colorbar=dict(title=dict(text="Vols en retard", side="right"), ticksuffix=" %", outlinewidth=0, thickness=12),
+    hovertemplate="<b>%{y}, %{x}</b><br>%{z:.1f} % des vols en retard<br>%{customdata:,} vols<extra></extra>"))
+fig.update_yaxes(autorange="reversed", ticks="", showline=False)
+fig.update_xaxes(ticks="", showline=False, title_text="Heure de départ prévue (heure locale)")
+if moyenne(soir) > moyenne(matin) + 3:
+    conclusion = (f"Les retards s'accumulent au fil de la journée : {pct(moyenne(soir), 0)} des vols du soir "
+                  f"(17-21 h) en retard, contre {pct(moyenne(matin), 0)} le matin (6-9 h)")
+else:
+    conclusion = (f"L'heure de départ change peu le risque de retard "
+                  f"({pct(moyenne(matin), 0)} le matin, {pct(moyenne(soir), 0)} le soir)")
+styler(fig, conclusion, "Part des vols opérés arrivés avec 15 min de retard ou plus, par jour et heure de départ prévue. "
+       "Cases blanches : trop peu de vols pour un taux fiable.", hauteur=360)
+afficher(fig)
+portee(compagnie=False, periode=False, aeroport=False)
+
+
 # ── Pied de page ──────────────────────────────────────────────────────────────────────────────────────────
 st.divider()
 st.caption(
