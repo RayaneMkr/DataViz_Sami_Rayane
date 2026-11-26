@@ -45,7 +45,21 @@ vols:Aeroport a owl:Class ;
 vols:Hub a owl:Class ;
     rdfs:subClassOf vols:Aeroport ;
     rdfs:label "Hub"@fr , "Hub airport"@en ;
-    rdfs:comment "Un aéroport qui assure au moins 1 % des départs nationaux. C'est le seuil des « large hubs » de la FAA (14 CFR § 398.2), défini sur les passagers et appliqué ici aux vols, faute de données passagers. Tout hub est un aéroport."@fr .
+    rdfs:comment "Un aéroport qui assure au moins 1 % des départs nationaux. C'est le seuil des « large hubs » de la FAA (14 CFR § 398.2), défini sur les passagers et appliqué ici aux vols, faute de données passagers. Tout hub est un aéroport."@fr ;
+    # Définition formelle (OWL 2) : Hub ≡ Aeroport ⊓ ∃ partDepartsPct . [≥ 1.0]
+    # Un raisonneur OWL classerait seul les hubs. Fuseki n'en active pas par
+    # défaut : 04_semantique écrit donc aussi le type vols:Hub explicitement.
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:intersectionOf (
+            vols:Aeroport
+            [ a owl:Restriction ;
+              owl:onProperty vols:partDepartsPct ;
+              owl:someValuesFrom [ a rdfs:Datatype ;
+                                   owl:onDatatype xsd:decimal ;
+                                   owl:withRestrictions ( [ xsd:minInclusive "1.0"^^xsd:decimal ] ) ] ]
+        )
+    ] .
 
 vols:Compagnie a owl:Class ;
     rdfs:label "Compagnie aérienne"@fr , "Airline"@en ;
@@ -58,6 +72,13 @@ vols:Route a owl:Class ;
 vols:Etat a owl:Class ;
     rdfs:label "État"@fr , "State"@en ;
     rdfs:comment "Un État ou territoire des États-Unis où se trouve un aéroport (code postal à deux lettres, ex. CA, TX, PR)."@fr .
+
+# Aucune instance ne peut appartenir à deux de ces classes (un vol n'est pas
+# un aéroport, une route n'est pas une compagnie…). Hub n'y figure pas : c'est
+# une sous-classe d'Aeroport.
+[] a owl:AllDisjointClasses ;
+    owl:members ( vols:Vol vols:Aeroport vols:Compagnie vols:Route vols:Etat
+                  vols:CauseRetard vols:ImputationRetard ) .
 
 # -----------------------------------------------------------------------------
 #  Hiérarchie des causes de retard
