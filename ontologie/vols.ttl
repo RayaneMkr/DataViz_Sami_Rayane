@@ -133,3 +133,71 @@ vols:ImputationRetard a owl:Class ;
     rdfs:label "Imputation de retard"@fr , "Delay attribution"@en ;
     rdfs:comment "Les minutes de retard d'un vol imputées par la BTS à une cause donnée. Un vol en a au plus cinq (une par cause non nulle)."@fr ;
     rdfs:seeAlso <https://www.w3.org/TR/swbp-n-aryRelations/> .
+
+# -----------------------------------------------------------------------------
+#  Propriétés objet (relations entre instances)
+# -----------------------------------------------------------------------------
+#  Les propriétés fonctionnelles ont au plus une valeur par sujet (un vol est
+#  opéré par une seule compagnie, part d'un seul aéroport…).
+#  Les liens owl:sameAs vers Wikidata (hubs) n'ont pas à être déclarés : c'est
+#  une propriété d'OWL.
+
+# --- Vol ---------------------------------------------------------------------
+vols:operePar a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "opéré par"@fr ;
+    rdfs:comment "La compagnie qui opère le vol (compagnie_code du silver)."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:Compagnie .
+
+vols:aeroportDepart a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "aéroport de départ"@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:Aeroport .
+
+vols:aeroportArrivee a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "aéroport d'arrivée"@fr ;
+    rdfs:comment "L'aéroport de destination prévu (un vol détourné atterrit ailleurs)."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:Aeroport .
+
+vols:surRoute a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "sur la route"@fr ;
+    rdfs:comment "La route (origine → destination) desservie par le vol."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:Route .
+
+vols:aImputation a owl:ObjectProperty ;
+    rdfs:label "a pour imputation de retard"@fr ;
+    rdfs:comment "Relie un vol en retard à chacune de ses imputations par cause (au plus cinq)."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:ImputationRetard .
+
+vols:causeAnnulation a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "cause d'annulation"@fr ;
+    rdfs:comment "Pour un vol annulé, la cause déclarée (CancellationCode BTS : A compagnie, B météo, C NAS, D sécurité). Elle réutilise les mêmes causes que les retards, donc la même hiérarchie contrôlable / non contrôlable."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:CauseRetard .
+
+# --- Imputation --------------------------------------------------------------
+vols:cause a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "cause"@fr ;
+    rdfs:comment "La cause à laquelle les minutes de l'imputation sont attribuées."@fr ;
+    rdfs:domain vols:ImputationRetard ;
+    rdfs:range vols:CauseRetard .
+
+# --- Route -------------------------------------------------------------------
+vols:origine a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "origine"@fr ;
+    rdfs:domain vols:Route ;
+    rdfs:range vols:Aeroport .
+
+vols:destination a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "destination"@fr ;
+    rdfs:domain vols:Route ;
+    rdfs:range vols:Aeroport .
+
+# --- Aéroport ----------------------------------------------------------------
+vols:situeDans a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "situé dans"@fr ;
+    rdfs:domain vols:Aeroport ;
+    rdfs:range vols:Etat .
