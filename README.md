@@ -104,10 +104,92 @@ docker compose up -d
 
 ## 5. KPI du tableau de bord
 
-| # | KPI | Définition | Calcul | Intérêt pour le persona |
-|---|---|---|---|---|
-| 1 | **Taux de ponctualité** | % de vols arrivés avec ≤15 min de retard | `COUNT(ARR_DELAY <= 15) / COUNT(*)` | Indicateur principal de performance opérationnelle |
-| 2 | **Retard moyen à l'arrivée** | Moyenne du retard en minutes | `AVG(ARR_DELAY) WHERE ARR_DELAY > 0` | Mesure l'ampleur des retards quand ils surviennent |
-| 3 | **Taux d'annulation** | % de vols annulés | `SUM(CANCELLED) / COUNT(*)` | Impact direct sur la satisfaction client et les coûts |
-| 4 | **Top causes de retard** | Répartition des causes | Distribution de `CARRIER_DELAY`, `WEATHER_DELAY`, etc. | Identifie les leviers d'amélioration actionnables |
-| 5 | **Score de fiabilité par route** | Ponctualité pondérée par volume | Composite ponctualité × volume | Priorise les routes à optimiser en premier |
+Les quatre KPI du dashboard et leur fiche (définition, calcul, intérêt pour la directrice) sont en
+**section 7.4**. Ils sont calculés sur les tables gold et suivent le contrat : « à l'heure » = arrivé avec moins
+de 15 min de retard, annulés et détournés exclus du dénominateur.
+
+---
+
+## 7. Sémantique et visualisation
+
+Cette partie couvre la couche sémantique (S03) et la restitution (S04–S06) :
+
+```
+ontologie/vols.ttl ──┐
+sem_* (03_gold) ─────┴─► 04_semantique (rdflib) ─► ontologie/graphe_vols.ttl ─► Fuseki :3030 ─► requetes.sparql
+gold_* (PostgreSQL) ───► 05_exploration (pandas, matplotlib) : choix des graphiques, avant / après
+gold_* (PostgreSQL) ───► app/app.py (Streamlit, plotly) :8501 : Contexte → Constat → Recommandation
+```
+
+### 7.1 Ontologie — `ontologie/vols.ttl`
+
+Le fichier ne contient que le schéma (T-Box) ; les instances sont générées par `04_semantique`. Vocabulaire
+dans l'espace `vols:` (`http://example.org/vols/ontologie#`), un espace par type d'instance (`aer:ATL`, `cie:DL`,
+`route:LAX-SFO`, `vol:…`, `etat:CA`, `imp:…`).
+
+| Classe | Rôle |
+|---|---|
+| `Vol` | un vol programmé (peut être annulé ou détourné) |
+| `Aeroport` ⊃ **`Hub`** | un hub assure au moins 1 % des départs nationaux (seuil *large hub* de la FAA) |
+| `Compagnie`, `Route`, `Etat` | qui opère, quelle liaison orientée, quel État |
+| `CauseRetard` ⊃ **`CauseControlable`** / **`CauseNonControlable`** | les 5 causes BTS, rangées selon que la compagnie peut agir dessus |
+| `ImputationRetard` | « tel vol a N minutes de retard dues à telle cause » (relation n-aire, motif du W3C) |
+
+```
+CauseRetard                                   Aeroport
+├── CauseControlable     compagnie,           └── Hub      (≥ 1 % des départs)
+│                        avion_retard
+└── CauseNonControlable  meteo, nas, securite
+```
+
+- **10 propriétés objet** (`operePar`, `aeroportDepart`, `aeroportArrivee`, `surRoute`, `aImputation`, `cause`,
+  `causeAnnulation`, `origine`, `destination`, `situeDans`) et **26 propriétés de données** (types XSD, unités en
+  commentaire), toutes avec domaine et portée.
+- Les deux sous-classes de causes sont **disjointes et couvrent** `CauseRetard` ; les classes principales sont
+  déclarées disjointes (`owl:AllDisjointClasses`).
+- `Hub` a une **définition formelle OWL 2** : `Hub ≡ Aeroport ⊓ ∃ partDepartsPct . [≥ 1.0]`.
+- Les annulations réutilisent les mêmes causes (`causeAnnulation`, codes A–D) : elles se rangent dans la même
+  hiérarchie.
+
+### 7.2 Graphe d'instances — `notebooks/04_semantique.ipynb`
+
+Le notebook lit les tables `sem_*` préparées par `03_gold` (sans Spark), construit le graphe avec **rdflib** et
+l'exporte dans `ontologie/graphe_vols.ttl` (schéma + instances : le fichier se charge seul dans Fuseki ou Protégé).
+
+| Contenu | Nombre |
+|---|---|
+| Aéroports (tous), typés `Hub` ou `Aeroport`, avec coordonnées, départs et État | 348, dont 30 hubs |
+| Compagnies | 15 |
+| Routes au plus fort `score_priorite` (avec rang et indicateurs gold) | 50 |
+| Vols échantillonnés sur ces routes, avec leurs imputations de retard par cause | 500 |
+| Liens `owl:sameAs` des hubs vers **Wikidata** | 30 |
+
+- Un hub n'est **pas** typé `Aeroport` explicitement : les requêtes le retrouvent par `a/rdfs:subClassOf*`.
+- Les identifiants Wikidata ont été obtenus par une requête sur `query.wikidata.org` (code IATA `P238`, pays
+  `P17` = États-Unis), documentée dans le notebook ; deux homonymes (AUS, EWR) ont été départagés à la main.
+- **Contrôles** avant export : la hiérarchie retrouve les 348 aéroports, la somme des imputations d'un vol en
+  retard égale son retard à l'arrivée, chaque vol part de l'origine de sa route.
+- **Fuseki** (`docker compose --profile semantique up -d`, http://localhost:3030) : le notebook crée le dataset
+  `vols` (TDB2) s'il manque, puis remplace son graphe (`PUT`, *Graph Store Protocol*) ; relancer ne duplique rien.
+  **Repli** : si Fuseki n'est pas lancé, les mêmes requêtes passent par rdflib.
+
+### 7.3 Requêtes SPARQL — `ontologie/requetes.sparql`
+
+Quatre requêtes commentées, exécutées dans la section 7 de `04_semantique` (lues dans le fichier) et
+copiables dans l'interface de Fuseki.
+
+| Requête | Question du persona | Ce qu'elle exploite |
+|---|---|---|
+| **Q1** | Au départ de quels hubs les retards sont-ils surtout contrôlables ? | les **deux hiérarchies** : `a/rdfs:subClassOf* vols:Hub` et `?cause a/rdfs:subClassOf* vols:CauseControlable` |
+| Q2 | Quelles routes traiter en premier, entre quelles villes ? | le parcours route → aéroports → États (hub à hub, intra-État) |
+| Q3 | Comment se comparent les compagnies sur ces routes ? | `estEnRetard` n'existe que pour les vols opérés : le dénominateur du contrat sans filtre |
+| Q4 | Où se concentrent les hubs ? | les liens `owl:sameAs` ; variante **fédérée** qui va chercher la date d'ouverture des hubs dans Wikidata |
+
+**Pourquoi Q1 serait plus lourde en SQL** (la requête SQL complète est en commentaire dans le fichier) :
+- SQL n'a pas de sous-classes : il faut une table de hiérarchie et un `WITH RECURSIVE` là où SPARQL écrit
+  `rdfs:subClassOf*` ;
+- les cinq causes sont cinq colonnes : il faut cinq `SELECT … UNION ALL` pour les dépivoter, et ajouter une cause
+  change le schéma **et** chaque requête ; dans le graphe, c'est un individu de plus et la requête ne change pas ;
+- « hub » et « contrôlable » deviennent des colonnes recopiées (`est_hub`, `controlable` sur chaque ligne de
+  `gold_causes_retard`) : reclasser une cause oblige à recalculer la table, alors que dans l'ontologie c'est un
+  triplet.
