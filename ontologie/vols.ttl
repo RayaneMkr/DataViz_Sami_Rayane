@@ -58,3 +58,78 @@ vols:Route a owl:Class ;
 vols:Etat a owl:Class ;
     rdfs:label "État"@fr , "State"@en ;
     rdfs:comment "Un État ou territoire des États-Unis où se trouve un aéroport (code postal à deux lettres, ex. CA, TX, PR)."@fr .
+
+# -----------------------------------------------------------------------------
+#  Hiérarchie des causes de retard
+# -----------------------------------------------------------------------------
+#  La BTS impute les minutes de retard de chaque vol arrivé avec 15 min ou plus
+#  à cinq causes. On les range selon la question du persona : la compagnie
+#  peut-elle agir dessus ?
+#
+#      CauseRetard
+#      ├── CauseControlable      compagnie, avion_retard
+#      └── CauseNonControlable   meteo, nas, securite
+#
+#  Les deux sous-classes sont disjointes et couvrent CauseRetard : toute cause
+#  est soit contrôlable, soit non contrôlable, jamais les deux.
+#  Les requêtes SPARQL interrogent la classe (rdfs:subClassOf*), pas une liste
+#  de causes : ajouter une cause plus fine (ex. « équipage » sous
+#  CauseControlable) ne demande de modifier aucune requête.
+
+vols:CauseRetard a owl:Class ;
+    rdfs:label "Cause de retard"@fr , "Delay cause"@en ;
+    rdfs:comment "Une des cinq causes auxquelles la BTS impute les minutes de retard d'un vol (colonnes CarrierDelay, LateAircraftDelay, WeatherDelay, NASDelay, SecurityDelay)."@fr ;
+    owl:equivalentClass [ a owl:Class ; owl:unionOf ( vols:CauseControlable vols:CauseNonControlable ) ] .
+
+vols:CauseControlable a owl:Class ;
+    rdfs:subClassOf vols:CauseRetard ;
+    owl:disjointWith vols:CauseNonControlable ;
+    rdfs:label "Cause contrôlable"@fr , "Controllable cause"@en ;
+    rdfs:comment "Cause sur laquelle la compagnie a un levier direct : organisation au sol, équipages, maintenance, marges de rotation."@fr .
+
+vols:CauseNonControlable a owl:Class ;
+    rdfs:subClassOf vols:CauseRetard ;
+    rdfs:label "Cause non contrôlable"@fr , "Uncontrollable cause"@en ;
+    rdfs:comment "Cause extérieure à la compagnie : météo, système national de l'aviation (contrôle aérien, congestion), sécurité."@fr .
+
+# Les cinq causes (individus). vols:codeCause reprend la valeur de la colonne
+# « cause » de la table gold_causes_retard, pour relier le graphe au gold.
+
+vols:cause_compagnie a owl:NamedIndividual , vols:CauseControlable ;
+    rdfs:label "Compagnie"@fr ;
+    vols:codeCause "compagnie" ;
+    rdfs:comment "Retard dû à la compagnie : maintenance, équipage, nettoyage, bagages, embarquement, avitaillement (CarrierDelay)."@fr .
+
+vols:cause_avion_retard a owl:NamedIndividual , vols:CauseControlable ;
+    rdfs:label "Avion en retard"@fr ;
+    vols:codeCause "avion_retard" ;
+    rdfs:comment "L'avion arrive en retard de son vol précédent (LateAircraftDelay). Contrôlable : la compagnie fixe les rotations et les marges entre deux vols."@fr .
+
+vols:cause_meteo a owl:NamedIndividual , vols:CauseNonControlable ;
+    rdfs:label "Météo"@fr ;
+    vols:codeCause "meteo" ;
+    rdfs:comment "Conditions météorologiques extrêmes qui empêchent ou retardent le vol (WeatherDelay)."@fr .
+
+vols:cause_nas a owl:NamedIndividual , vols:CauseNonControlable ;
+    rdfs:label "Système national (NAS)"@fr ;
+    vols:codeCause "nas" ;
+    rdfs:comment "National Aviation System : contrôle aérien, congestion de l'aéroport, météo non extrême (NASDelay)."@fr .
+
+vols:cause_securite a owl:NamedIndividual , vols:CauseNonControlable ;
+    rdfs:label "Sécurité"@fr ;
+    vols:codeCause "securite" ;
+    rdfs:comment "Évacuation d'un terminal, réembarquement après une faille de sécurité, files d'inspection de plus de 29 min (SecurityDelay)."@fr .
+
+# -----------------------------------------------------------------------------
+#  Imputation d'un retard à une cause (relation n-aire)
+# -----------------------------------------------------------------------------
+#  « Le vol V a 23 minutes de retard dues à la météo » relie trois choses : un
+#  vol, une cause et un nombre de minutes. RDF n'ayant que des relations à deux
+#  termes, on crée un nœud intermédiaire (motif W3C « N-ary relations ») :
+#      vol:V  vols:aImputation  imp:V_meteo .
+#      imp:V_meteo  vols:cause  vols:cause_meteo ;  vols:minutes 23 .
+
+vols:ImputationRetard a owl:Class ;
+    rdfs:label "Imputation de retard"@fr , "Delay attribution"@en ;
+    rdfs:comment "Les minutes de retard d'un vol imputées par la BTS à une cause donnée. Un vol en a au plus cinq (une par cause non nulle)."@fr ;
+    rdfs:seeAlso <https://www.w3.org/TR/swbp-n-aryRelations/> .
