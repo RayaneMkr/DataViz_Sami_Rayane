@@ -168,3 +168,51 @@ WHERE {
 GROUP BY ?compagnie
 HAVING (COUNT(?vol) >= 10)
 ORDER BY DESC(?pct_en_retard) ?compagnie
+
+
+# =============================================================================
+# Q4 — Où sont les hubs ? Départs par État, avec les liens Wikidata
+# =============================================================================
+#  Question du persona : dans quels États se concentrent les hubs (et donc les
+#  correspondances à protéger) ? Chaque hub est donné avec son identifiant
+#  Wikidata, lu sur le lien owl:sameAs : c'est la porte vers les données
+#  externes (passagers, compagnies basées, date d'ouverture…).
+#
+#  Variante fédérée, à lancer dans Fuseki (nécessite Internet) : la date
+#  d'ouverture de chaque hub (P1619), lue dans Wikidata et rattachée à nos hubs
+#  par le lien owl:sameAs. Le bloc SERVICE est placé en premier, sans variable
+#  déjà liée : Fuseki l'envoie en UN seul appel (les aéroports américains qui ont
+#  un code IATA et une date d'ouverture), puis fait la jointure localement.
+#  Placé après les hubs, il partirait une fois par hub, et Wikidata répond
+#  « 429 Too Many Requests ». Testée le 26/11/2026 : 30 hubs, de SLC (1911) à
+#  AUS (1999).
+#
+#    PREFIX vols: <http://example.org/vols/ontologie#>
+#    PREFIX owl:  <http://www.w3.org/2002/07/owl#>
+#    PREFIX wd:   <http://www.wikidata.org/entity/>
+#    PREFIX wdt:  <http://www.wikidata.org/prop/direct/>
+#    SELECT ?hub ?ouverture WHERE {
+#        SERVICE <https://query.wikidata.org/sparql> {
+#            ?wd wdt:P238 [] ; wdt:P17 wd:Q30 ; wdt:P1619 ?ouverture .
+#        }
+#        ?a a vols:Hub ; vols:codeIATA ?hub ; owl:sameAs ?wd .
+#    }
+#    ORDER BY ?ouverture
+
+PREFIX vols: <http://example.org/vols/ontologie#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl:  <http://www.w3.org/2002/07/owl#>
+
+SELECT ?etat
+       (COUNT(?a) AS ?hubs)
+       (SUM(?departs) AS ?departs_2024)
+       (GROUP_CONCAT(CONCAT(?code, " = ", COALESCE(STRAFTER(STR(?wd), "entity/"), "?")); separator=", ") AS ?hubs_wikidata)
+WHERE {
+    ?a a/rdfs:subClassOf* vols:Hub ;
+       vols:codeIATA ?code ;
+       vols:departs ?departs ;
+       vols:situeDans/rdfs:label ?etat .
+    OPTIONAL { ?a owl:sameAs ?wd }
+}
+GROUP BY ?etat
+ORDER BY DESC(?departs_2024)
