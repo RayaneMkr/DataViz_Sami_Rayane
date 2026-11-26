@@ -100,3 +100,71 @@ WHERE {
 GROUP BY ?hub ?ville
 HAVING (COUNT(DISTINCT ?vol) >= 3)
 ORDER BY DESC(?part_controlable_pct) ?hub
+
+
+# =============================================================================
+# Q2 — Les 10 routes à traiter en premier, et les villes qu'elles relient
+# =============================================================================
+#  Question du persona : quelles liaisons concentrent le plus de vols en retard,
+#  et s'agit-il de navettes entre deux hubs ou à l'intérieur d'un même État ?
+#
+#  La requête suit les liens du graphe : route → aéroports → États. Le rang et
+#  le score viennent de gold_routes (score_priorite = vols × (1 − pct_a_l_heure
+#  / 100), soit environ le nombre de vols en retard sur l'année).
+#  « hub_a_hub » est vrai si les deux extrémités sont des hubs (hiérarchie,
+#  comme en Q1) ; « meme_etat » repère les liaisons intra-État (ex. LAX → SFO).
+
+PREFIX vols: <http://example.org/vols/ontologie#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?rang ?route ?ville_origine ?ville_destination ?etat_origine ?etat_destination
+       ?vols ?pct_a_l_heure ?score_priorite ?hub_a_hub ?meme_etat
+WHERE {
+    ?r a vols:Route ;
+       rdfs:label ?route ;
+       vols:rangPriorite ?rang ;
+       vols:nbVols ?vols ;
+       vols:pctALHeure ?pct_a_l_heure ;
+       vols:scorePriorite ?score_priorite ;
+       vols:origine ?o ;
+       vols:destination ?d .
+    ?o vols:ville ?ville_origine ; vols:situeDans ?eo .
+    ?d vols:ville ?ville_destination ; vols:situeDans ?ed .
+    ?eo rdfs:label ?etat_origine .
+    ?ed rdfs:label ?etat_destination .
+    BIND (EXISTS { ?o a/rdfs:subClassOf* vols:Hub } && EXISTS { ?d a/rdfs:subClassOf* vols:Hub } AS ?hub_a_hub)
+    BIND (?eo = ?ed AS ?meme_etat)
+}
+ORDER BY ?rang
+LIMIT 10
+
+
+# =============================================================================
+# Q3 — Ponctualité des compagnies sur les routes prioritaires (échantillon)
+# =============================================================================
+#  Question du persona : sur les mêmes routes, comment se comparent les
+#  compagnies ? (sous-question 5 du README)
+#
+#  vols:estEnRetard n'existe que pour un vol opéré (ni annulé, ni détourné) :
+#  le motif « ?vol vols:estEnRetard ?en_retard » sélectionne donc exactement le
+#  dénominateur de la ponctualité du contrat gold, sans filtre supplémentaire.
+#  On ne garde que les compagnies avec au moins 10 vols opérés dans l'échantillon.
+
+PREFIX vols: <http://example.org/vols/ontologie#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?compagnie
+       (COUNT(?vol) AS ?vols_operes)
+       (SUM(IF(?en_retard, 1, 0)) AS ?vols_en_retard)
+       (ROUND(1000 * SUM(IF(?en_retard, 1, 0)) / COUNT(?vol)) / 10 AS ?pct_en_retard)
+       (COUNT(DISTINCT ?route) AS ?routes)
+WHERE {
+    ?vol a vols:Vol ;
+         vols:operePar ?c ;
+         vols:surRoute ?route ;
+         vols:estEnRetard ?en_retard .
+    ?c rdfs:label ?compagnie .
+}
+GROUP BY ?compagnie
+HAVING (COUNT(?vol) >= 10)
+ORDER BY DESC(?pct_en_retard) ?compagnie
