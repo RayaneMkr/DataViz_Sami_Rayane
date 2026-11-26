@@ -1,0 +1,8 @@
+# Thème clair : les couleurs des graphiques (accent bleu, gris, rampe bleue) sont choisies pour un fond blanc.
+[theme]
+base = "light"
+primaryColor = "#257de0"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
