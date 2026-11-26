@@ -193,3 +193,63 @@ copiables dans l'interface de Fuseki.
 - « hub » et « contrôlable » deviennent des colonnes recopiées (`est_hub`, `controlable` sur chaque ligne de
   `gold_causes_retard`) : reclasser une cause oblige à recalculer la table, alors que dans l'ontologie c'est un
   triplet.
+
+### 7.4 KPI du tableau de bord
+
+Quatre KPI, en tête du dashboard. Chacun a sa fiche dans un `st.expander` sous sa valeur. Ils sont **ré-agrégés à
+partir des comptes** (`vols_operes`, `vols_a_l_heure`, `vols_annules`, `minutes`), jamais par moyenne de
+pourcentages : un mois de 120 000 vols pèse plus qu'un mois de 6 000. Quand une compagnie est choisie, chaque KPI
+affiche son écart à l'ensemble des compagnies sur la même période.
+
+| KPI | Définition | Calcul (tables gold) | Intérêt pour la directrice |
+|---|---|---|---|
+| **Ponctualité à l'arrivée** | part des vols opérés arrivés avec moins de 15 min de retard (définition du DOT) | `100 × Σ vols_a_l_heure / Σ vols_operes` — `gold_ponctualite_mensuelle` | l'indicateur de référence, publié par le DOT ; c'est lui que les actions doivent faire monter |
+| **Retard moyen à l'arrivée** | retard moyen des vols opérés, avances comptées en négatif (min) | `Σ (retard_moyen_min × vols_operes) / Σ vols_operes` | la ponctualité dit combien de vols sont en retard, pas de combien : l'ampleur fait les correspondances manquées et les coûts |
+| **Taux d'annulation** | part des vols programmés annulés | `100 × Σ vols_annules / Σ vols` | les annulés sont exclus de la ponctualité : sans ce KPI, annuler un vol fragile « améliorerait » la ponctualité |
+| **Part des retards contrôlables** | part des minutes de retard dues à la compagnie ou à un avion en retard de son vol précédent | `Σ minutes (controlable) / Σ minutes` — `gold_causes_retard` | dit quelle part du problème la compagnie peut réduire elle-même : l'ambition réaliste d'un plan d'action |
+
+### 7.5 Exploration et choix des graphiques — `notebooks/05_exploration.ipynb`
+
+Le notebook explore les tables gold (pandas, matplotlib) et fixe la forme de chaque graphique repris dans le
+dashboard. Règles appliquées partout (S04) : **titre = la conclusion** (calculé sur les données, donc toujours
+vrai), sous-titre = la mesure, unités sur les axes, **barres depuis 0**, pas de camembert ni d'arc-en-ciel,
+**une seule couleur d'accent** (bleu = « là où agir », le reste en gris), **étiquettes directes** plutôt que légende.
+
+| Question du persona | Graphique | Pourquoi cette forme |
+|---|---|---|
+| Les retards sont-ils saisonniers ? | courbe mensuelle de ponctualité, moyenne annuelle en repère | une évolution dans le temps se lit sur une ligne ; une ligne code par la position, son axe n'a pas à partir de 0 (plage de 30 points pour ne pas grossir les écarts) |
+| Comment se placent les compagnies ? | barres horizontales triées, bleu = sous la moyenne | la longueur se compare mieux que tout autre codage ; le tri donne le rang ; les noms se lisent sans pivoter |
+| Où sont les points noirs ? | 20 plus gros aéroports en barres ; **carte** dans le dashboard (taille = départs) | le volume compte autant que le taux : un grand hub en retard désorganise tout le réseau |
+| Quels créneaux sont à risque ? | **heatmap** jour × heure | deux dimensions ordonnées et une grandeur : une seule teinte du clair au foncé, échelle depuis 0 |
+| Quelles routes traiter en premier ? | barres du `score_priorite` (≈ vols en retard sur l'année) | une seule série, donc une seule couleur ; score et ponctualité écrits au bout de chaque barre |
+| Quelles causes, et sur lesquelles agir ? | **avant / après** ci-dessous | — |
+
+**Avant / après.** Le camembert des causes (cinq couleurs par défaut, codes techniques, titre « Causes de
+retard ») est refait en **barres horizontales triées** depuis 0 : les causes contrôlables en bleu, les autres en
+gris, la valeur au bout de chaque barre et une accolade qui nomme chaque groupe et son total. Le titre devient la
+conclusion (« X % des minutes de retard ont une cause que la compagnie contrôle »). Chaque correction est justifiée
+dans le notebook : **Cleveland & McGill** (une longueur se juge mieux qu'un angle ou une aire), **couleur = sens**
+(la seule distinction utile, contrôlable ou non), **ratio données / encre** (Tufte), **étiquettes directes**.
+
+La palette (accent `#257de0`, gris `#b4b4b4`, rampe bleue pour la heatmap) a été vérifiée au validateur de
+palettes : l'accent et le gris restent distincts pour les trois formes de daltonisme.
+
+### 7.6 Dashboard — `app/app.py` (http://localhost:8501)
+
+Le dashboard suit le récit **Contexte → Constat → Recommandation** :
+
+| Temps | Contenu |
+|---|---|
+| **1 · Contexte** | les 4 KPI et leurs fiches ; courbe mensuelle de ponctualité (sélection en bleu, marché en gris) |
+| **2 · Constat** | causes en barres (version « après ») ; carte des aéroports ; heatmap jour × heure |
+| **3 · Recommandation** | 10 routes au plus fort `score_priorite` ; une **phrase d'action** calculée (routes à traiter, part contrôlable, part « avion en retard », heure la plus exposée) ; tableau des routes |
+
+- **Filtres** sur une ligne, au-dessus de tout ce qu'ils filtrent : **compagnie(s)**, **période** (mois), **aéroport**.
+  Les tables gold n'ont pas toutes les mêmes dimensions : une ligne sous chaque graphique dit quels filtres s'y
+  appliquent (par exemple, la carte et la heatmap couvrent toujours l'année entière, toutes compagnies).
+- **Données fictives** : si PostgreSQL ou les tables `gold_*` sont absents, le dashboard affiche
+  `app/donnees_fictives.py` (les cinq tables du contrat, au format exact, chiffres inventés) avec un bandeau
+  d'avertissement. `DONNEES_FICTIVES=1` force ce mode.
+- Lancement : service `streamlit` du compose (`docker compose up -d`), ou en local :
+  `cd app && pip install -r requirements.txt && streamlit run app.py` (variables `PG_HOST`, `PG_PORT`, `PG_DB`,
+  `PG_USER`, `PG_PASSWORD`).
