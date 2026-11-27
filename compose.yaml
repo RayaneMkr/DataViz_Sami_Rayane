@@ -12,14 +12,24 @@ name: projet-dataviz
 services:
 
   # --- Notebooks + Spark ----------------------------------------------------
+  jupyter-init:           # donne le volume des jars à l'utilisateur jovyan (uid 1000), puis s'arrête
+    image: alpine:3.20
+    command: sh -c "chown -R 1000:100 /ivy && echo volume pret"
+    volumes:
+      - ivy-cache:/ivy
+
   jupyter:
-    image: quay.io/jupyter/pyspark-notebook:latest
+    # Version épinglée : « latest » est passée à Spark 4.3 le 23/11/2026, et commun/spark_utils.py ne connaît
+    # pas de version de Delta Lake pour Spark 4.3 (01_bronze s'arrêterait à l'assert Delta).
+    image: quay.io/jupyter/pyspark-notebook:spark-4.2.0
     ports:
       - "8888:8888"   # JupyterLab -> http://localhost:8888/lab?token=cours
       - "4040:4040"   # Spark UI   -> http://localhost:4040 (session Spark active)
     volumes:
       - .:/home/jovyan/work            # tout le dépôt est visible dans Jupyter
-      - ivy-cache:/home/jovyan/.ivy2   # jars Spark (Delta, S3, JDBC) téléchargés une seule fois
+      # jars Spark (Delta, S3, JDBC, ~1,5 Go) téléchargés une seule fois.
+      # Spark 4 les range dans ~/.ivy2.5.2 (et non plus ~/.ivy2 comme Spark 3).
+      - ivy-cache:/home/jovyan/.ivy2.5.2
     command: start-notebook.py --IdentityProvider.token=${JUPYTER_TOKEN:-cours}
     environment:
       S3_ENDPOINT: http://rustfs:9000
@@ -31,8 +41,12 @@ services:
       PG_USER: ${PG_USER:-cours}
       PG_PASSWORD: ${PG_PASSWORD:-cours}
     depends_on:
-      - postgres
-      - rustfs
+      postgres:
+        condition: service_started
+      rustfs:
+        condition: service_started
+      jupyter-init:
+        condition: service_completed_successfully
 
   # --- Data lake S3 (bronze / silver / gold en Delta) -----------------------
   rustfs-init:            # donne les droits du volume à l'utilisateur RustFS, puis s'arrête

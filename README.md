@@ -9,32 +9,32 @@ Session 2026-2027 · Enseignant : M. L. NDAO
 
 ## 1. Le jeu de données
 
-**Source :** [Bureau of Transportation Statistics (BTS)](https://www.transtats.bts.gov/Tables.asp?QO_VQ=EFD) — *Reporting Carrier On-Time Performance*
+**Source :** [Bureau of Transportation Statistics (BTS)](https://www.transtats.bts.gov/Tables.asp?QO_VQ=EFD), table *Reporting Carrier On-Time Performance (1987-present)*. Les fichiers mensuels viennent de `https://transtats.bts.gov/PREZIP/`, et le téléchargement est fait par `scripts/telecharger_donnees.sh`.
 
-Le dataset contient l'intégralité des vols commerciaux intérieurs aux États-Unis, publiés mensuellement par le Département des Transports américain (DOT).
+Chaque ligne est un vol intérieur programmé par une compagnie américaine, avec ses horaires prévus et réels, ses retards, son éventuelle annulation et la répartition de son retard par cause.
 
 | Caractéristique | Détail |
 |---|---|
-| **Volume** | ~6 millions de lignes par an (nous utilisons 2023 + 2024, soit ~12M lignes) |
-| **Dimension temporelle** | Date du vol (`FL_DATE`), heure de départ/arrivée prévue et réelle |
-| **Dimension géographique** | Aéroport d'origine et de destination (code IATA, ville, état, coordonnées) |
-| **Format** | CSV zippés, un fichier par mois |
-| **Licence** | Données publiques du gouvernement américain (domaine public) |
+| **Volume** | **7 079 061 vols**, l'année 2024 complète (le minimum demandé est de 2 M de lignes) |
+| **Format** | 12 CSV, un par mois (environ 3 Go décompressés), 109 colonnes |
+| **Dimension temporelle** | Date du vol, jour de la semaine, heures de départ et d'arrivée prévues et réelles |
+| **Dimension géographique** | Aéroports d'origine et de destination (code IATA, ville, état). Les coordonnées viennent d'un second jeu, [OurAirports](https://ourairports.com/data/) (`airports.csv`), joint sur le code IATA |
+| **Compagnies** | 15 compagnies (code BTS, par exemple `WN` Southwest, `DL` Delta) |
+| **Licence** | Données publiques du gouvernement américain ; OurAirports est dans le domaine public |
 
-### Colonnes principales
+### Colonnes principales (noms BTS)
 
-| Colonne | Description |
-|---|---|
-| `FL_DATE` | Date du vol |
-| `OP_UNIQUE_CARRIER` | Code de la compagnie aérienne |
-| `ORIGIN` / `DEST` | Codes IATA des aéroports d'origine et de destination |
-| `DEP_DELAY` | Retard au départ (en minutes, négatif = en avance) |
-| `ARR_DELAY` | Retard à l'arrivée (en minutes) |
-| `CANCELLED` | Vol annulé (1) ou non (0) |
-| `CANCELLATION_CODE` | Cause d'annulation (A=compagnie, B=météo, C=NAS, D=sécurité) |
-| `AIR_TIME` | Temps de vol effectif (minutes) |
-| `DISTANCE` | Distance du trajet (miles) |
-| `CARRIER_DELAY`, `WEATHER_DELAY`, `NAS_DELAY`, `SECURITY_DELAY`, `LATE_AIRCRAFT_DELAY` | Décomposition du retard par cause |
+| Colonne BTS | Nom en silver | Description |
+|---|---|---|
+| `FlightDate`, `DayOfWeek` | `date_vol`, `jour_semaine` | Date du vol, jour de la semaine (1 = lundi) |
+| `Reporting_Airline`, `Flight_Number_Reporting_Airline` | `compagnie_code`, `numero_vol` | Compagnie qui opère le vol, numéro de vol |
+| `Origin`, `Dest` | `origine`, `destination` | Codes IATA des aéroports |
+| `CRSDepTime` | `heure_depart_prevue` | Heure de départ prévue (`HHMM`, heure locale) |
+| `DepDelay`, `ArrDelay` | `retard_depart_min`, `retard_arrivee_min` | Retards au départ et à l'arrivée, en minutes (négatif = en avance) |
+| `ArrDel15` | `retard_15` | 1 si le vol arrive avec 15 min de retard ou plus |
+| `Cancelled`, `CancellationCode`, `Diverted` | `annule`, `code_annulation`, `detourne` | Annulation (A compagnie, B météo, C contrôle aérien, D sécurité), déroutement |
+| `AirTime`, `Distance` | `temps_vol_min`, `distance_miles` | Temps de vol (min), distance (miles) |
+| `CarrierDelay`, `LateAircraftDelay`, `WeatherDelay`, `NASDelay`, `SecurityDelay` | `retard_compagnie_min`, `retard_avion_min`, `retard_meteo_min`, `retard_nas_min`, `retard_securite_min` | Répartition du retard par cause (min), renseignée pour les vols arrivés avec 15 min de retard ou plus |
 
 ---
 
@@ -63,42 +63,81 @@ Le dataset contient l'intégralité des vols commerciaux intérieurs aux États-
 
 ```
 ├── README.md
-├── docker-compose.yml
+├── compose.yaml                  # Stack Docker : Jupyter/Spark, RustFS, PostgreSQL, Adminer, Streamlit, Fuseki
+├── .env.example                  # Identifiants par défaut (à copier en .env)
 ├── scripts/
-│   └── download_data.py        # Téléchargement des données BTS
-├── notebooks/
-│   ├── 01_bronze.ipynb         # Ingestion brute → Delta (MinIO/S3)
-│   ├── 02_silver.ipynb         # Nettoyage, typage, validation
-│   ├── 03_gold.ipynb           # Agrégats → PostgreSQL
-│   └── 04_exploration.ipynb    # Exploration & visualisations (avant/après)
-├── ontology/
-│   ├── flights.ttl             # Ontologie OWL/RDF du domaine
-│   └── queries.sparql          # Requêtes SPARQL
-├── streamlit/
-│   ├── app.py                  # Dashboard Streamlit
+│   └── telecharger_donnees.sh    # Télécharge les 12 mois BTS 2024 et airports.csv dans data/raw/
+├── commun/                       # Outils repris du dépôt du cours
+│   ├── spark_utils.py            # creer_session(), LAKE, vers_postgres()
+│   └── donnees.py                # lire() : tables PostgreSQL → pandas
+├── notebooks/                    # À exécuter dans l'ordre
+│   ├── 01_bronze.ipynb           # CSV → bronze (Delta, RustFS)
+│   ├── 02_silver.ipynb           # Typage, 8 règles de nettoyage, référentiels
+│   ├── 03_gold.ipynb             # Tables gold_* et sem_* → PostgreSQL
+│   ├── 04_semantique.ipynb       # Graphe RDF (rdflib) → ontologie/graphe_vols.ttl → Fuseki
+│   └── 05_exploration.ipynb      # Exploration des tables gold, avant / après
+├── ontologie/
+│   ├── vols.ttl                  # Ontologie OWL (classes, hiérarchies, propriétés)
+│   ├── graphe_vols.ttl           # Graphe d'instances exporté par 04_semantique
+│   └── requetes.sparql           # Requêtes SPARQL commentées
+├── app/                          # Dashboard Streamlit (service « streamlit » du compose)
+│   ├── app.py
+│   ├── donnees_fictives.py       # Données de secours si PostgreSQL est vide
+│   ├── Dockerfile
 │   └── requirements.txt
-├── docker/
-│   └── Dockerfile.streamlit
-└── data/                       # (non versionné) données téléchargées
+└── data/                         # Non versionné : créé par le script de téléchargement
 ```
+
+Le data lake (bronze, silver, gold) n'est pas un dossier du dépôt : il vit dans le volume Docker de RustFS (`s3a://datalake/…`, voir la section 6). Les tables gold sont copiées dans PostgreSQL (volume `pg-data`).
 
 ---
 
 ## 4. Lancement
 
+**Prérequis**
+- Docker Desktop avec **8 Go de mémoire** alloués (*Settings → Resources*).
+- Environ **15 Go d'espace disque libre** : 3 Go de CSV, 1,8 Go de data lake, 7 Go pour l'image Jupyter/Spark et environ 2 Go pour les autres images.
+- Le dépôt sur le **disque interne**. Sur un disque externe exFAT, Docker ne peut pas réécrire les fichiers, et JupyterLab ne sauvegarde plus les notebooks.
+
+**1. Récupérer le projet et les données**
 ```bash
-# 1. Télécharger les données
-pip install -r scripts/requirements.txt
-python scripts/download_data.py
-
-# 2. Lancer l'infrastructure
-docker compose up -d
-
-# 3. Exécuter les notebooks dans l'ordre
-#    01_bronze → 02_silver → 03_gold → 04_exploration
-
-# 4. Le dashboard Streamlit est accessible sur http://localhost:8501
+git clone <url-du-dépôt> projet-dataviz && cd projet-dataviz
+cp .env.example .env
+bash scripts/telecharger_donnees.sh      # 12 CSV BTS 2024 + airports.csv dans data/raw/ (~330 Mo à télécharger)
 ```
+Le script saute les fichiers déjà présents : on peut le relancer s'il est interrompu.
+
+**2. Démarrer la stack**
+```bash
+docker compose --profile semantique up -d --build
+```
+Le profil `semantique` ajoute Fuseki, utilisé par `04_semantique`. `--build` construit l'image du dashboard. Sans Fuseki, `docker compose up -d --build` suffit, et `04_semantique` passe alors par rdflib.
+
+| Service | Adresse | Identifiants |
+|---|---|---|
+| JupyterLab | http://localhost:8888/lab?token=cours | jeton `cours` |
+| Console RustFS (data lake) | http://localhost:9001 | `rustfsadmin` / `rustfsadmin` |
+| Adminer (PostgreSQL) | http://localhost:8080 | système PostgreSQL, serveur `postgres`, `cours` / `cours`, base `vols` |
+| Fuseki (SPARQL) | http://localhost:3030 | `admin` / `admin` |
+| Dashboard | http://localhost:8501 | — |
+
+**3. Exécuter les notebooks dans l'ordre**
+
+Dans JupyterLab, ouvrir `work/notebooks/`, puis pour chaque notebook : *Run → Run All Cells*, et *File → Close and Shut Down Notebook* avant de passer au suivant.
+
+| Notebook | Durée | Produit |
+|---|---|---|
+| `01_bronze` | ~3 min 30 | `bronze/vols`, `bronze/aeroports` |
+| `02_silver` | ~1 min | `silver/vols`, `rejets`, `aeroports`, `compagnies` |
+| `03_gold` | < 1 min | tables `gold_*` (dashboard) et `sem_*` (graphe) dans PostgreSQL |
+| `04_semantique` | — | `ontologie/graphe_vols.ttl`, chargé dans Fuseki |
+| `05_exploration` | — | graphiques et avant / après |
+
+Le premier démarrage de Spark télécharge les jars Delta, S3 et JDBC (environ 1,5 Go), ce qui prend quelques minutes ; ils sont ensuite gardés dans un volume Docker. **Un seul notebook Spark ouvert à la fois** : à deux sessions, on dépasse 8 Go (voir la section 6.4).
+
+**4. Ouvrir le dashboard** : http://localhost:8501. Il lit les tables `gold_*`. Tant qu'elles n'existent pas, il affiche des données fictives, avec un bandeau d'avertissement.
+
+**Arrêter** : `docker compose --profile "*" down`. Les volumes, donc le data lake et la base, sont conservés. Pour tout effacer et repartir de zéro : `docker compose --profile "*" down -v`.
 
 ---
 
@@ -205,7 +244,7 @@ FROM gold_ponctualite_mensuelle WHERE compagnie_code IN ('AA', 'DL');
 | `02_silver` | ~1 min | `silver/vols`, `rejets`, `aeroports`, `compagnies` |
 | `03_gold` | ~35 s | 5 tables `gold_*` dans le data lake et PostgreSQL |
 
-Ces durées ont été mesurées sur un Mac avec 8 Go alloués à Docker. Le premier démarrage de Spark télécharge en plus les jars Delta, S3 et JDBC, qui sont ensuite gardés en cache.
+Ces durées ont été mesurées sur un Mac avec 8 Go alloués à Docker. Le premier démarrage de Spark télécharge en plus les jars Delta, S3 et JDBC (environ 1,5 Go). Ils sont gardés dans le volume Docker `ivy-cache`, monté sur `~/.ivy2.5.2`, le dossier qu'utilise Spark 4 : les démarrages suivants prennent quelques secondes, même après recréation du conteneur.
 
 - **Un seul notebook Spark ouvert à la fois.** Chaque noyau garde sa session Spark (2 à 5 Go) : à deux, on dépasse 8 Go et Linux arrête Spark (`Py4JNetworkError` / `Connection refused`). Pour fermer vraiment un notebook : *File → Close and Shut Down Notebook*, car fermer l'onglet ne suffit pas.
 - **Pas de `spark.createDataFrame(liste)`** pour les petites tables de correspondance : il démarre un worker Python d'environ 360 Mo par cœur. On utilise `F.create_map(...)` à la place.
