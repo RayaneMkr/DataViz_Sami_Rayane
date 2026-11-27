@@ -250,6 +250,7 @@ Le dashboard suit le récit **Contexte → Constat → Recommandation** :
 - **Données fictives** : si PostgreSQL ou les tables `gold_*` sont absents, le dashboard affiche
   `app/donnees_fictives.py` (les cinq tables du contrat, au format exact, chiffres inventés) avec un bandeau
   d'avertissement. `DONNEES_FICTIVES=1` force ce mode.
-- Lancement : service `streamlit` du compose (`docker compose up -d`), ou en local :
+- Lancement : service `streamlit` du compose (`docker compose up -d --build` : `--build` reconstruit l'image
+  quand `app/requirements.txt` change), ou en local :
   `cd app && pip install -r requirements.txt && streamlit run app.py` (variables `PG_HOST`, `PG_PORT`, `PG_DB`,
   `PG_USER`, `PG_PASSWORD`).
