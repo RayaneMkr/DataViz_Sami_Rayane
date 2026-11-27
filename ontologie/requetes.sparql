@@ -1,0 +1,218 @@
+# =============================================================================
+#  Requêtes SPARQL sur le graphe des vols (ontologie/graphe_vols.ttl)
+#  Projet DataViz — Sup de Vinci M1 Big Data & IA — Sami & Rayane
+# =============================================================================
+#  Où les lancer
+#    - Fuseki : http://localhost:3030 → dataset « vols » → onglet « query »
+#      (après docker compose --profile semantique up -d et notebooks/04_semantique.ipynb)
+#    - ou notebooks/04_semantique.ipynb, section 7, qui les lit dans ce fichier et
+#      les exécute sur Fuseki, ou sur rdflib si Fuseki n'est pas lancé.
+#  Chaque requête déclare ses préfixes : elle se copie-colle seule dans Fuseki.
+#
+#  Rappel : le graphe contient TOUS les aéroports, compagnies et États, mais
+#  seulement les 50 routes prioritaires et un échantillon de 500 vols sur ces
+#  routes. Les chiffres par vol (Q1, Q3) illustrent la méthode ; les taux
+#  nationaux font foi dans les tables gold.
+# =============================================================================
+
+
+# =============================================================================
+# Q1 — Part des minutes de retard contrôlables, par hub de départ
+# =============================================================================
+#  Question du persona : au départ de quels hubs les retards sont-ils surtout de
+#  notre fait (donc réductibles) plutôt que dus à la météo ou au contrôle aérien ?
+#
+#  Ce que la requête exploite de l'ontologie
+#    1. la hiérarchie des aéroports : « ?aeroport a/rdfs:subClassOf* vols:Hub »
+#       accepte vols:Hub et toute sous-classe qu'on lui ajouterait ;
+#    2. la hiérarchie des causes : une cause est contrôlable si son type est,
+#       directement ou non, une sous-classe de vols:CauseControlable. Aucune
+#       liste de causes n'est écrite dans la requête ;
+#    3. les imputations (vol × cause × minutes) : les cinq causes sont des
+#       nœuds, pas cinq colonnes, donc une seule ligne de motif les couvre.
+#
+#  Lecture : part_controlable_pct = minutes dues à la compagnie ou à l'avion en
+#  retard / toutes les minutes de retard des vols partis du hub. On écarte les
+#  hubs avec moins de 3 vols en retard dans l'échantillon (part trop instable).
+#
+#  Pourquoi ce serait plus lourd en SQL — la même question sur un schéma
+#  relationnel (tables vols, aeroports, une colonne par cause) :
+#
+#    WITH RECURSIVE controlables(classe) AS (       -- (a) descendre la hiérarchie
+#        SELECT 'CauseControlable'
+#        UNION ALL
+#        SELECT h.classe FROM hierarchie_causes h
+#        JOIN controlables c ON h.classe_mere = c.classe
+#    ),
+#    imputations AS (                               -- (b) dépivoter les 5 colonnes
+#        SELECT id_vol, origine, 'compagnie' AS cause, retard_compagnie_min AS minutes FROM vols
+#        UNION ALL SELECT id_vol, origine, 'avion_retard', retard_avion_min    FROM vols
+#        UNION ALL SELECT id_vol, origine, 'meteo',        retard_meteo_min    FROM vols
+#        UNION ALL SELECT id_vol, origine, 'nas',          retard_nas_min      FROM vols
+#        UNION ALL SELECT id_vol, origine, 'securite',     retard_securite_min FROM vols
+#    )
+#    SELECT a.code_iata, a.ville,
+#           COUNT(DISTINCT i.id_vol) AS vols_en_retard,
+#           ROUND(SUM(i.minutes))    AS minutes_retard,
+#           ROUND(100.0 * SUM(CASE WHEN c.classe IN (SELECT classe FROM controlables)
+#                                  THEN i.minutes ELSE 0 END) / SUM(i.minutes), 1) AS part_controlable_pct
+#    FROM imputations i
+#    JOIN aeroports a     ON a.code_iata = i.origine AND a.est_hub   -- (c) « est un hub » = un booléen
+#    JOIN causes_classe c ON c.cause = i.cause                       -- (d) table cause → classe
+#    WHERE i.minutes > 0
+#    GROUP BY a.code_iata, a.ville
+#    HAVING COUNT(DISTINCT i.id_vol) >= 3
+#    ORDER BY part_controlable_pct DESC;
+#
+#    (a) SQL ne connaît pas la notion de sous-classe : il faut une table de
+#        hiérarchie et un WITH RECURSIVE pour la parcourir à toute profondeur.
+#        En SPARQL, c'est le chemin « rdfs:subClassOf* ».
+#    (b) Les causes sont des colonnes : il faut cinq SELECT recollés par UNION ALL
+#        avant de pouvoir grouper. Ajouter une sixième cause oblige à modifier le
+#        schéma de la table ET chaque requête ; dans le graphe, c'est un individu
+#        de plus, et cette requête ne change pas.
+#    (c) « Hub » est une colonne booléenne à tenir à jour à côté du type ; dans le
+#        graphe, c'est le type lui-même, et un hub reste un aéroport pour toutes
+#        les requêtes sur vols:Aeroport.
+#    (d) La classification contrôlable / non contrôlable est une donnée de plus à
+#        joindre (ou, comme dans gold_causes_retard, une colonne recopiée sur
+#        chaque ligne : la changer oblige à recalculer la table). Ici, elle est
+#        écrite une seule fois dans l'ontologie : reclasser une cause, c'est
+#        changer un triplet dans vols.ttl.
+
+PREFIX vols: <http://example.org/vols/ontologie#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?hub ?ville
+       (COUNT(DISTINCT ?vol) AS ?vols_en_retard)
+       (ROUND(SUM(?minutes)) AS ?minutes_retard)
+       (ROUND(1000 * SUM(IF(?controlable, ?minutes, 0)) / SUM(?minutes)) / 10 AS ?part_controlable_pct)
+WHERE {
+    ?aeroport a/rdfs:subClassOf* vols:Hub ;
+              vols:codeIATA ?hub ;
+              vols:ville ?ville .
+    ?vol vols:aeroportDepart ?aeroport ;
+         vols:aImputation ?imputation .
+    ?imputation vols:cause ?cause ;
+                vols:minutes ?minutes .
+    BIND (EXISTS { ?cause a/rdfs:subClassOf* vols:CauseControlable } AS ?controlable)
+}
+GROUP BY ?hub ?ville
+HAVING (COUNT(DISTINCT ?vol) >= 3)
+ORDER BY DESC(?part_controlable_pct) ?hub
+
+
+# =============================================================================
+# Q2 — Les 10 routes à traiter en premier, et les villes qu'elles relient
+# =============================================================================
+#  Question du persona : quelles liaisons concentrent le plus de vols en retard,
+#  et s'agit-il de navettes entre deux hubs ou à l'intérieur d'un même État ?
+#
+#  La requête suit les liens du graphe : route → aéroports → États. Le rang et
+#  le score viennent de gold_routes (score_priorite = vols × (1 − pct_a_l_heure
+#  / 100), soit environ le nombre de vols en retard sur l'année).
+#  « hub_a_hub » est vrai si les deux extrémités sont des hubs (hiérarchie,
+#  comme en Q1) ; « meme_etat » repère les liaisons intra-État (ex. LAX → SFO).
+
+PREFIX vols: <http://example.org/vols/ontologie#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?rang ?route ?ville_origine ?ville_destination ?etat_origine ?etat_destination
+       ?vols ?pct_a_l_heure ?score_priorite ?hub_a_hub ?meme_etat
+WHERE {
+    ?r a vols:Route ;
+       rdfs:label ?route ;
+       vols:rangPriorite ?rang ;
+       vols:nbVols ?vols ;
+       vols:pctALHeure ?pct_a_l_heure ;
+       vols:scorePriorite ?score_priorite ;
+       vols:origine ?o ;
+       vols:destination ?d .
+    ?o vols:ville ?ville_origine ; vols:situeDans ?eo .
+    ?d vols:ville ?ville_destination ; vols:situeDans ?ed .
+    ?eo rdfs:label ?etat_origine .
+    ?ed rdfs:label ?etat_destination .
+    BIND (EXISTS { ?o a/rdfs:subClassOf* vols:Hub } && EXISTS { ?d a/rdfs:subClassOf* vols:Hub } AS ?hub_a_hub)
+    BIND (?eo = ?ed AS ?meme_etat)
+}
+ORDER BY ?rang
+LIMIT 10
+
+
+# =============================================================================
+# Q3 — Ponctualité des compagnies sur les routes prioritaires (échantillon)
+# =============================================================================
+#  Question du persona : sur les mêmes routes, comment se comparent les
+#  compagnies ? (sous-question 5 du README)
+#
+#  vols:estEnRetard n'existe que pour un vol opéré (ni annulé, ni détourné) :
+#  le motif « ?vol vols:estEnRetard ?en_retard » sélectionne donc exactement le
+#  dénominateur de la ponctualité du contrat gold, sans filtre supplémentaire.
+#  On ne garde que les compagnies avec au moins 10 vols opérés dans l'échantillon.
+
+PREFIX vols: <http://example.org/vols/ontologie#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?compagnie
+       (COUNT(?vol) AS ?vols_operes)
+       (SUM(IF(?en_retard, 1, 0)) AS ?vols_en_retard)
+       (ROUND(1000 * SUM(IF(?en_retard, 1, 0)) / COUNT(?vol)) / 10 AS ?pct_en_retard)
+       (COUNT(DISTINCT ?route) AS ?routes)
+WHERE {
+    ?vol a vols:Vol ;
+         vols:operePar ?c ;
+         vols:surRoute ?route ;
+         vols:estEnRetard ?en_retard .
+    ?c rdfs:label ?compagnie .
+}
+GROUP BY ?compagnie
+HAVING (COUNT(?vol) >= 10)
+ORDER BY DESC(?pct_en_retard) ?compagnie
+
+
+# =============================================================================
+# Q4 — Où sont les hubs ? Départs par État, avec les liens Wikidata
+# =============================================================================
+#  Question du persona : dans quels États se concentrent les hubs (et donc les
+#  correspondances à protéger) ? Chaque hub est donné avec son identifiant
+#  Wikidata, lu sur le lien owl:sameAs : c'est la porte vers les données
+#  externes (passagers, compagnies basées, date d'ouverture…).
+#
+#  Variante fédérée, à lancer dans Fuseki (nécessite Internet) : la date
+#  d'ouverture de chaque hub (P1619), lue dans Wikidata et rattachée à nos hubs
+#  par le lien owl:sameAs. Le bloc SERVICE est placé en premier, sans variable
+#  déjà liée : Fuseki l'envoie en UN seul appel (les aéroports américains qui ont
+#  un code IATA et une date d'ouverture), puis fait la jointure localement.
+#  Placé après les hubs, il partirait une fois par hub, et Wikidata répond
+#  « 429 Too Many Requests ». Testée le 26/11/2026 : 30 hubs, de SLC (1911) à
+#  AUS (1999).
+#
+#    PREFIX vols: <http://example.org/vols/ontologie#>
+#    PREFIX owl:  <http://www.w3.org/2002/07/owl#>
+#    PREFIX wd:   <http://www.wikidata.org/entity/>
+#    PREFIX wdt:  <http://www.wikidata.org/prop/direct/>
+#    SELECT ?hub ?ouverture WHERE {
+#        SERVICE <https://query.wikidata.org/sparql> {
+#            ?wd wdt:P238 [] ; wdt:P17 wd:Q30 ; wdt:P1619 ?ouverture .
+#        }
+#        ?a a vols:Hub ; vols:codeIATA ?hub ; owl:sameAs ?wd .
+#    }
+#    ORDER BY ?ouverture
+
+PREFIX vols: <http://example.org/vols/ontologie#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl:  <http://www.w3.org/2002/07/owl#>
+
+SELECT ?etat
+       (COUNT(?a) AS ?hubs)
+       (SUM(?departs) AS ?departs_2024)
+       (GROUP_CONCAT(CONCAT(?code, " = ", COALESCE(STRAFTER(STR(?wd), "entity/"), "?")); separator=", ") AS ?hubs_wikidata)
+WHERE {
+    ?a a/rdfs:subClassOf* vols:Hub ;
+       vols:codeIATA ?code ;
+       vols:departs ?departs ;
+       vols:situeDans/rdfs:label ?etat .
+    OPTIONAL { ?a owl:sameAs ?wd }
+}
+GROUP BY ?etat
+ORDER BY DESC(?departs_2024)
