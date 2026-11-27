@@ -1,0 +1,383 @@
+# =============================================================================
+#  Ontologie des vols intérieurs US et de leurs retards (BTS On-Time 2024)
+#  Projet DataViz — Sup de Vinci M1 Big Data & IA — Sami & Rayane
+# =============================================================================
+#  Ce fichier ne contient que le schéma (T-Box) : classes, propriétés, causes.
+#  Les instances (aéroports, compagnies, routes, vols) sont générées par
+#  notebooks/04_semantique.ipynb dans ontologie/graphe_vols.ttl.
+#
+#  Espaces de noms
+#    vols:  le vocabulaire (classes et propriétés)  http://example.org/vols/ontologie#
+#    les instances ont chacune leur espace, défini dans graphe_vols.ttl :
+#    aer: (aéroports), cie: (compagnies), route:, vol:, etat:, imp: (imputations)
+# =============================================================================
+
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:     <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix vols:    <http://example.org/vols/ontologie#> .
+
+# -----------------------------------------------------------------------------
+#  L'ontologie
+# -----------------------------------------------------------------------------
+<http://example.org/vols/ontologie> a owl:Ontology ;
+    rdfs:label "Ontologie des vols intérieurs US et de leurs retards"@fr ;
+    dcterms:description """Décrit les vols commerciaux intérieurs aux États-Unis (BTS On-Time Performance 2024),
+les aéroports, compagnies, routes et États qu'ils relient, et les causes de leurs retards,
+classées selon que la compagnie peut agir dessus ou non."""@fr ;
+    dcterms:creator "Sami et Rayane" ;
+    dcterms:source <https://www.transtats.bts.gov/Tables.asp?QO_VQ=EFD> ;
+    owl:versionInfo "2.0" .
+
+# -----------------------------------------------------------------------------
+#  Classes du domaine
+# -----------------------------------------------------------------------------
+vols:Vol a owl:Class ;
+    rdfs:label "Vol"@fr , "Flight"@en ;
+    rdfs:comment "Un vol commercial intérieur programmé un jour donné par une compagnie, d'un aéroport d'origine vers un aéroport de destination. Il peut avoir été annulé ou détourné."@fr .
+
+vols:Aeroport a owl:Class ;
+    rdfs:label "Aéroport"@fr , "Airport"@en ;
+    rdfs:comment "Un aéroport desservi par au moins un vol intérieur en 2024, identifié par son code IATA."@fr .
+
+vols:Hub a owl:Class ;
+    rdfs:subClassOf vols:Aeroport ;
+    rdfs:label "Hub"@fr , "Hub airport"@en ;
+    rdfs:comment "Un aéroport qui assure au moins 1 % des départs nationaux. C'est le seuil des « large hubs » de la FAA (14 CFR § 398.2), défini sur les passagers et appliqué ici aux vols, faute de données passagers. Tout hub est un aéroport."@fr ;
+    # Définition formelle (OWL 2) : Hub ≡ Aeroport ⊓ ∃ partDepartsPct . [≥ 1.0]
+    # Un raisonneur OWL classerait seul les hubs. Fuseki n'en active pas par
+    # défaut : 04_semantique écrit donc aussi le type vols:Hub explicitement.
+    owl:equivalentClass [
+        a owl:Class ;
+        owl:intersectionOf (
+            vols:Aeroport
+            [ a owl:Restriction ;
+              owl:onProperty vols:partDepartsPct ;
+              owl:someValuesFrom [ a rdfs:Datatype ;
+                                   owl:onDatatype xsd:decimal ;
+                                   owl:withRestrictions ( [ xsd:minInclusive "1.0"^^xsd:decimal ] ) ] ]
+        )
+    ] .
+
+vols:Compagnie a owl:Class ;
+    rdfs:label "Compagnie aérienne"@fr , "Airline"@en ;
+    rdfs:comment "Une compagnie qui opère des vols (code BTS de la compagnie opérante, ex. DL, WN, 9E)."@fr .
+
+vols:Route a owl:Class ;
+    rdfs:label "Route"@fr , "Route"@en ;
+    rdfs:comment "Une liaison orientée d'un aéroport d'origine vers un aéroport de destination (LAX → SFO et SFO → LAX sont deux routes)."@fr .
+
+vols:Etat a owl:Class ;
+    rdfs:label "État"@fr , "State"@en ;
+    rdfs:comment "Un État ou territoire des États-Unis où se trouve un aéroport (code postal à deux lettres, ex. CA, TX, PR)."@fr .
+
+# Aucune instance ne peut appartenir à deux de ces classes (un vol n'est pas
+# un aéroport, une route n'est pas une compagnie…). Hub n'y figure pas : c'est
+# une sous-classe d'Aeroport.
+[] a owl:AllDisjointClasses ;
+    owl:members ( vols:Vol vols:Aeroport vols:Compagnie vols:Route vols:Etat
+                  vols:CauseRetard vols:ImputationRetard ) .
+
+# -----------------------------------------------------------------------------
+#  Hiérarchie des causes de retard
+# -----------------------------------------------------------------------------
+#  La BTS impute les minutes de retard de chaque vol arrivé avec 15 min ou plus
+#  à cinq causes. On les range selon la question du persona : la compagnie
+#  peut-elle agir dessus ?
+#
+#      CauseRetard
+#      ├── CauseControlable      compagnie, avion_retard
+#      └── CauseNonControlable   meteo, nas, securite
+#
+#  Les deux sous-classes sont disjointes et couvrent CauseRetard : toute cause
+#  est soit contrôlable, soit non contrôlable, jamais les deux.
+#  Les requêtes SPARQL interrogent la classe (rdfs:subClassOf*), pas une liste
+#  de causes : ajouter une cause plus fine (ex. « équipage » sous
+#  CauseControlable) ne demande de modifier aucune requête.
+
+vols:CauseRetard a owl:Class ;
+    rdfs:label "Cause de retard"@fr , "Delay cause"@en ;
+    rdfs:comment "Une des cinq causes auxquelles la BTS impute les minutes de retard d'un vol (colonnes CarrierDelay, LateAircraftDelay, WeatherDelay, NASDelay, SecurityDelay)."@fr ;
+    owl:equivalentClass [ a owl:Class ; owl:unionOf ( vols:CauseControlable vols:CauseNonControlable ) ] .
+
+vols:CauseControlable a owl:Class ;
+    rdfs:subClassOf vols:CauseRetard ;
+    owl:disjointWith vols:CauseNonControlable ;
+    rdfs:label "Cause contrôlable"@fr , "Controllable cause"@en ;
+    rdfs:comment "Cause sur laquelle la compagnie a un levier direct : organisation au sol, équipages, maintenance, marges de rotation."@fr .
+
+vols:CauseNonControlable a owl:Class ;
+    rdfs:subClassOf vols:CauseRetard ;
+    rdfs:label "Cause non contrôlable"@fr , "Uncontrollable cause"@en ;
+    rdfs:comment "Cause extérieure à la compagnie : météo, système national de l'aviation (contrôle aérien, congestion), sécurité."@fr .
+
+# Les cinq causes (individus). vols:codeCause reprend la valeur de la colonne
+# « cause » de la table gold_causes_retard, pour relier le graphe au gold.
+
+vols:cause_compagnie a owl:NamedIndividual , vols:CauseControlable ;
+    rdfs:label "Compagnie"@fr ;
+    vols:codeCause "compagnie" ;
+    rdfs:comment "Retard dû à la compagnie : maintenance, équipage, nettoyage, bagages, embarquement, avitaillement (CarrierDelay)."@fr .
+
+vols:cause_avion_retard a owl:NamedIndividual , vols:CauseControlable ;
+    rdfs:label "Avion en retard"@fr ;
+    vols:codeCause "avion_retard" ;
+    rdfs:comment "L'avion arrive en retard de son vol précédent (LateAircraftDelay). Contrôlable : la compagnie fixe les rotations et les marges entre deux vols."@fr .
+
+vols:cause_meteo a owl:NamedIndividual , vols:CauseNonControlable ;
+    rdfs:label "Météo"@fr ;
+    vols:codeCause "meteo" ;
+    rdfs:comment "Conditions météorologiques extrêmes qui empêchent ou retardent le vol (WeatherDelay)."@fr .
+
+vols:cause_nas a owl:NamedIndividual , vols:CauseNonControlable ;
+    rdfs:label "Système national (NAS)"@fr ;
+    vols:codeCause "nas" ;
+    rdfs:comment "National Aviation System : contrôle aérien, congestion de l'aéroport, météo non extrême (NASDelay)."@fr .
+
+vols:cause_securite a owl:NamedIndividual , vols:CauseNonControlable ;
+    rdfs:label "Sécurité"@fr ;
+    vols:codeCause "securite" ;
+    rdfs:comment "Évacuation d'un terminal, réembarquement après une faille de sécurité, files d'inspection de plus de 29 min (SecurityDelay)."@fr .
+
+# -----------------------------------------------------------------------------
+#  Imputation d'un retard à une cause (relation n-aire)
+# -----------------------------------------------------------------------------
+#  « Le vol V a 23 minutes de retard dues à la météo » relie trois choses : un
+#  vol, une cause et un nombre de minutes. RDF n'ayant que des relations à deux
+#  termes, on crée un nœud intermédiaire (motif W3C « N-ary relations ») :
+#      vol:V  vols:aImputation  imp:V_meteo .
+#      imp:V_meteo  vols:cause  vols:cause_meteo ;  vols:minutes 23 .
+
+vols:ImputationRetard a owl:Class ;
+    rdfs:label "Imputation de retard"@fr , "Delay attribution"@en ;
+    rdfs:comment "Les minutes de retard d'un vol imputées par la BTS à une cause donnée. Un vol en a au plus cinq (une par cause non nulle)."@fr ;
+    rdfs:seeAlso <https://www.w3.org/TR/swbp-n-aryRelations/> .
+
+# -----------------------------------------------------------------------------
+#  Propriétés objet (relations entre instances)
+# -----------------------------------------------------------------------------
+#  Les propriétés fonctionnelles ont au plus une valeur par sujet (un vol est
+#  opéré par une seule compagnie, part d'un seul aéroport…).
+#  Les liens owl:sameAs vers Wikidata (hubs) n'ont pas à être déclarés : c'est
+#  une propriété d'OWL.
+
+# --- Vol ---------------------------------------------------------------------
+vols:operePar a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "opéré par"@fr ;
+    rdfs:comment "La compagnie qui opère le vol (compagnie_code du silver)."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:Compagnie .
+
+vols:aeroportDepart a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "aéroport de départ"@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:Aeroport .
+
+vols:aeroportArrivee a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "aéroport d'arrivée"@fr ;
+    rdfs:comment "L'aéroport de destination prévu (un vol détourné atterrit ailleurs)."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:Aeroport .
+
+vols:surRoute a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "sur la route"@fr ;
+    rdfs:comment "La route (origine → destination) desservie par le vol."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:Route .
+
+vols:aImputation a owl:ObjectProperty ;
+    rdfs:label "a pour imputation de retard"@fr ;
+    rdfs:comment "Relie un vol en retard à chacune de ses imputations par cause (au plus cinq)."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:ImputationRetard .
+
+vols:causeAnnulation a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "cause d'annulation"@fr ;
+    rdfs:comment "Pour un vol annulé, la cause déclarée (CancellationCode BTS : A compagnie, B météo, C NAS, D sécurité). Elle réutilise les mêmes causes que les retards, donc la même hiérarchie contrôlable / non contrôlable."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range vols:CauseRetard .
+
+# --- Imputation --------------------------------------------------------------
+vols:cause a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "cause"@fr ;
+    rdfs:comment "La cause à laquelle les minutes de l'imputation sont attribuées."@fr ;
+    rdfs:domain vols:ImputationRetard ;
+    rdfs:range vols:CauseRetard .
+
+# --- Route -------------------------------------------------------------------
+vols:origine a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "origine"@fr ;
+    rdfs:domain vols:Route ;
+    rdfs:range vols:Aeroport .
+
+vols:destination a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "destination"@fr ;
+    rdfs:domain vols:Route ;
+    rdfs:range vols:Aeroport .
+
+# --- Aéroport ----------------------------------------------------------------
+vols:situeDans a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "situé dans"@fr ;
+    rdfs:domain vols:Aeroport ;
+    rdfs:range vols:Etat .
+
+# -----------------------------------------------------------------------------
+#  Propriétés de données (valeurs littérales)
+# -----------------------------------------------------------------------------
+#  Les noms (aéroport, compagnie, État, cause) utilisent rdfs:label.
+#  Les durées sont en minutes, les distances en miles, les parts de 0 à 100,
+#  comme dans les tables gold.
+
+# --- Vol ---------------------------------------------------------------------
+vols:idVol a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "identifiant du vol"@fr ;
+    rdfs:comment "Clé du vol : date_compagnie_numéro_origine_heure (ex. 20240101_B6_623_JFK_14), comme id_vol de sem_vols."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range xsd:string .
+
+vols:dateVol a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "date du vol"@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range xsd:date .
+
+vols:numeroVol a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "numéro de vol"@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range xsd:string .
+
+vols:heureDepartPrevue a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "heure de départ prévue"@fr ;
+    rdfs:comment "Heure locale de départ prévue, de 0 à 23."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range xsd:integer .
+
+vols:distanceMiles a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "distance (miles)"@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range xsd:decimal .
+
+vols:retardDepartMin a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "retard au départ (min)"@fr ;
+    rdfs:comment "Négatif si le vol part en avance. Absent pour un vol annulé."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range xsd:decimal .
+
+vols:retardArriveeMin a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "retard à l'arrivée (min)"@fr ;
+    rdfs:comment "Négatif si le vol arrive en avance. Absent pour un vol annulé ou détourné."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range xsd:decimal .
+
+vols:estEnRetard a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "en retard"@fr ;
+    rdfs:comment "Vrai si le vol est arrivé avec 15 min de retard ou plus (ARR_DEL15 = 1, définition du DOT). Absent pour un vol annulé ou détourné, qui n'entre pas dans la ponctualité."@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range xsd:boolean .
+
+vols:estAnnule a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "annulé"@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range xsd:boolean .
+
+vols:estDetourne a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "détourné"@fr ;
+    rdfs:domain vols:Vol ;
+    rdfs:range xsd:boolean .
+
+# --- Imputation et cause -----------------------------------------------------
+vols:minutes a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "minutes de retard"@fr ;
+    rdfs:comment "Minutes de retard imputées à la cause, toujours strictement positives."@fr ;
+    rdfs:domain vols:ImputationRetard ;
+    rdfs:range xsd:decimal .
+
+vols:codeCause a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "code de la cause"@fr ;
+    rdfs:comment "Valeur de la colonne « cause » de gold_causes_retard (compagnie, avion_retard, meteo, nas, securite)."@fr ;
+    rdfs:domain vols:CauseRetard ;
+    rdfs:range xsd:string .
+
+# --- Aéroport ----------------------------------------------------------------
+vols:codeIATA a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "code IATA"@fr ;
+    rdfs:comment "Code à trois lettres de l'aéroport dans les données BTS 2024 (ex. ATL, LAX)."@fr ;
+    rdfs:domain vols:Aeroport ;
+    rdfs:range xsd:string .
+
+vols:ville a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "ville"@fr ;
+    rdfs:domain vols:Aeroport ;
+    rdfs:range xsd:string .
+
+vols:latitude a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "latitude (degrés)"@fr ;
+    rdfs:domain vols:Aeroport ;
+    rdfs:range xsd:decimal .
+
+vols:longitude a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "longitude (degrés)"@fr ;
+    rdfs:domain vols:Aeroport ;
+    rdfs:range xsd:decimal .
+
+vols:departs a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "départs en 2024"@fr ;
+    rdfs:comment "Nombre de vols programmés au départ de l'aéroport en 2024, annulés compris."@fr ;
+    rdfs:domain vols:Aeroport ;
+    rdfs:range xsd:integer .
+
+vols:partDepartsPct a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "part des départs nationaux (%)"@fr ;
+    rdfs:comment "100 × départs de l'aéroport / départs de tous les aéroports. Sert à définir les hubs (≥ 1 %)."@fr ;
+    rdfs:domain vols:Aeroport ;
+    rdfs:range xsd:decimal .
+
+vols:pageWikipedia a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "page Wikipédia"@fr ;
+    rdfs:comment "Lien fourni par OurAirports."@fr ;
+    rdfs:domain vols:Aeroport ;
+    rdfs:range xsd:anyURI .
+
+# --- Compagnie et État -------------------------------------------------------
+vols:codeCompagnie a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "code compagnie"@fr ;
+    rdfs:comment "Code BTS de la compagnie opérante (ex. DL, WN, 9E)."@fr ;
+    rdfs:domain vols:Compagnie ;
+    rdfs:range xsd:string .
+
+vols:codeEtat a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "code de l'État"@fr ;
+    rdfs:comment "Code postal à deux lettres (ex. CA, TX, PR)."@fr ;
+    rdfs:domain vols:Etat ;
+    rdfs:range xsd:string .
+
+# --- Route (valeurs reprises de gold_routes) ---------------------------------
+vols:nbVols a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "vols en 2024"@fr ;
+    rdfs:comment "Vols programmés sur la route en 2024, annulés compris (gold_routes.vols)."@fr ;
+    rdfs:domain vols:Route ;
+    rdfs:range xsd:integer .
+
+vols:pctALHeure a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "vols à l'heure (%)"@fr ;
+    rdfs:comment "100 × vols arrivés avec moins de 15 min de retard / vols opérés (ni annulés ni détournés)."@fr ;
+    rdfs:domain vols:Route ;
+    rdfs:range xsd:decimal .
+
+vols:retardMoyenMin a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "retard moyen à l'arrivée (min)"@fr ;
+    rdfs:domain vols:Route ;
+    rdfs:range xsd:decimal .
+
+vols:scorePriorite a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "score de priorité"@fr ;
+    rdfs:comment "vols × (1 − pct_a_l_heure / 100) : approche le nombre de vols en retard sur l'année. Plus il est élevé, plus la route est à traiter tôt."@fr ;
+    rdfs:domain vols:Route ;
+    rdfs:range xsd:integer .
+
+vols:rangPriorite a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "rang de priorité"@fr ;
+    rdfs:comment "Rang de la route par score de priorité décroissant (1 = la route à traiter en premier)."@fr ;
+    rdfs:domain vols:Route ;
+    rdfs:range xsd:integer .
