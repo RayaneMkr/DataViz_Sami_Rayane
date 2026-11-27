@@ -1,11 +1,7 @@
-pandas>=2.2.0
-pyarrow>=15.0.0
-deltalake>=0.17.0
-minio>=7.2.0
-psycopg2-binary>=2.9.9
-sqlalchemy>=2.0.0
-matplotlib>=3.9.0
-plotly>=5.22.0
-jupyterlab>=4.2.0
-rdflib>=7.0.0
-tqdm>=4.66.0
+# Paquets utilisés par les notebooks EN PLUS de ceux de l'image quay.io/jupyter/pyspark-notebook:spark-4.2.0
+# (qui fournit déjà pyspark, pandas, numpy, matplotlib, pyarrow, sqlalchemy, requests).
+# Rien à installer à la main : chacun est installé automatiquement au premier usage.
+delta-spark==4.4.1    # commun/spark_utils.py, creer_session() : Delta Lake pour Spark 4.2
+boto3                 # commun/spark_utils.py, creer_bucket() : création du bucket datalake
+psycopg2-binary       # commun/donnees.py, lire() : lecture des tables PostgreSQL
+rdflib>=7.0.0         # notebooks/04_semantique.ipynb : graphe RDF

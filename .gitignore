@@ -11,9 +11,12 @@ __pycache__/
 .venv/
 venv/
 
-# Jupyter
+# Jupyter et Spark
 .ipynb_checkpoints/
 .ivy2/
+spark-warehouse/
+metastore_db/
+derby.log
 
 # IDE
 .vscode/
